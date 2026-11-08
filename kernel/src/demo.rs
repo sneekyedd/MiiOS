@@ -63,7 +63,12 @@ impl Demo {
 
     pub fn draw(&self, c: &mut Canvas) {
         c.fill_rect(Rect::new(0, 0, c.width, c.height), BG);
-        c.text(&font::LARGE, 64, 48, "Milestone 3: keyboard + mouse", INK);
+        c.text(&font::LARGE, 64, 48, "Milestone 4: keyboard + mouse + memory", INK);
+        let (total, used) = crate::mem::frame::stats();
+        let (hsize, hused) = crate::mem::heap::stats();
+        let mut m = crate::util::FmtBuf::<128>::new();
+        let _ = core::fmt::write(&mut m, format_args!("RAM {} MiB usable | frames in use {} KiB | heap {} KiB mapped, {} B used", total >> 20, used >> 10, hsize >> 10, hused));
+        c.text(&font::MEDIUM, 64, 620, m.as_str(), INK_SOFT);
         c.text(&font::MEDIUM, 64, 96, "Type something. Move the pointer over the tiles and click one.", INK_SOFT);
 
         c.fill_round_rect(Rect::new(64, 170, 1792, 64), 20, WHITE);

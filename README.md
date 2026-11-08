@@ -177,3 +177,42 @@ a USB keyboard is PS/2, so it *may* work by luck.)
 What you should see: type and the text appears in the white box, with the last key shown
 below it. Move the mouse (click inside the QEMU window to capture it; Ctrl+Alt+G releases
 it): tiles lift when hovered and get a blue ring when clicked.
+
+---
+
+## Milestone 4: memory management ✅
+
+**Files:** `kernel/src/mem/` (`frame.rs`, `paging.rs`, `heap.rs`, `early.rs`).
+
+1. **Physical frames** (`frame.rs`). RAM is split into 4 KiB *frames*. The allocator walks the
+   free regions of Limine's memory map front to back ("bump allocation"). Freed frames go on a
+   *free list* stored inside the free frames themselves, so it uses zero extra memory. Both
+   allocate and free are O(1).
+2. **Paging** (`paging.rs`). Code uses *virtual* addresses, and the CPU translates them through a
+   4-level tree of tables into *physical* addresses. `map_page()` walks the tree, creating
+   missing tables, and writes the final entry. Our own virtual regions:
+
+   | Virtual address | What |
+   |---|---|
+   | `0xFFFF_8000_…` | Limine's direct map of all RAM ("HHDM") |
+   | `0xFFFF_9000_…` | **Our heap** (up to 1 GiB reserved, only used parts backed by RAM) |
+   | `0xFFFF_A000_…` | **Framebuffer**, write-combining |
+   | `0xFFFF_B000_…` | **Device registers** (MMIO), uncached |
+   | `0xFFFF_FFFF_8…` | The kernel itself |
+
+3. **Write-combining framebuffer.** The *Page Attribute Table* (PAT) lets each page pick a caching
+   mode. Screen memory gets **write-combining**: the CPU gathers writes into 64-byte bursts instead
+   of sending them one by one. On real hardware this often makes screen copies 5–10× faster.
+   QEMU doesn't emulate caches, so you'll only notice it on the T470. Device registers get
+   **uncached**, because every read and write must really reach the device.
+4. **Heap** (`heap.rs`). `#[global_allocator]` hooks up Rust's `alloc` crate, so `Vec`, `Box` and
+   `String` work. The allocator itself is the small, well-tested `linked_list_allocator` crate;
+   we supply the memory. It starts with 2 MiB and grows by mapping more frames when it runs out.
+5. **Rule:** drawing code never allocates. The heap is for things made once, like documents and
+   buffers.
+
+**Boot self-test:** allocate a `Box`, a 3 MB `Vec` (forces the heap to grow) and a `String`; check
+the sum; translate a heap address back to its physical frame. The serial log shows the result.
+
+**Results:** kernel **125 KiB**. QEMU shows 495 MiB usable with `-m 512M`; the T470 will show
+about 7.8 GiB.
