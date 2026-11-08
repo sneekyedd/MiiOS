@@ -314,6 +314,18 @@ impl Write {
     }
 
     fn key(&mut self, key: Key, m: Mods, d: &mut Damage) -> Action {
+        // Wherever the caret is drawn now must be redrawn afterwards, even if
+        // that row's text doesn't change (e.g. pressing Enter at the end of a line).
+        let old_vis = self.row_of(self.cursor) as isize - self.top as isize;
+        let top_before = self.top;
+        let a = self.key_inner(key, m, d);
+        if old_vis >= 0 && (old_vis as usize) < self.visible_rows() && self.top == top_before {
+            d.add(self.row_rect(old_vis as usize));
+        }
+        a
+    }
+
+    fn key_inner(&mut self, key: Key, m: Mods, d: &mut Damage) -> Action {
         let sel = m.shift;
         let cur = self.cursor;
         match key {

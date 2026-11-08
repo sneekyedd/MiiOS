@@ -8,6 +8,13 @@
 
 use crate::arch::cpu::{inb, outb};
 use crate::log;
+use core::sync::atomic::{AtomicBool, Ordering};
+
+/// False if this PC has no PS/2 controller at all (its ports then read 0xFF).
+static PRESENT: AtomicBool = AtomicBool::new(false);
+
+/// Throw away any waiting bytes (bounded, in case the hardware misbehaves).
+fn flush() { for _ in 0..64 { if inb(STATUS) & 1 == 0 { break; } inb(DATA); } }
 
 const DATA: u16 = 0x60;
 const STATUS: u16 = 0x64;
@@ -45,9 +52,14 @@ pub fn kbd_write(b: u8) -> bool {
 
 /// Set up the controller. Returns true if a mouse answered.
 pub fn init(enable_irqs: bool) -> bool {
+    if inb(STATUS) == 0xFF {
+        log!("ps2: no PS/2 controller (USB keyboards still work)");
+        return false;
+    }
+    PRESENT.store(true, Ordering::Relaxed);
     command(0xAD); // disable keyboard port while we configure
     command(0xA7); // disable mouse port
-    while inb(STATUS) & 1 != 0 { inb(DATA); } // throw away stale bytes
+    flush(); // throw away stale bytes
 
     command(0x20); // read configuration byte
     let mut cfg = read_data().unwrap_or(0);
@@ -76,12 +88,13 @@ pub fn init(enable_irqs: bool) -> bool {
         let cfg = read_data().unwrap_or(cfg) | 0b11; // IRQ1 (keyboard) and IRQ12 (mouse)
         command(0x60); write_data(cfg);
     }
-    while inb(STATUS) & 1 != 0 { inb(DATA); }
+    flush();
     mouse_ok
 }
 
 /// Polling: read every waiting byte and hand it to the right driver.
 pub fn poll() {
+    if !PRESENT.load(Ordering::Relaxed) { return; }
     for _ in 0..64 {
         let s = inb(STATUS);
         if s & 1 == 0 { break; }

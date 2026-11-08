@@ -451,11 +451,11 @@ to the T470's drive at all.
 | ✅ Works | ❌ Does not work |
 |---|---|
 | UEFI boot from USB, 1920×1080 screen | **Wi-Fi, Bluetooth** (huge drivers + firmware). Ethernet is a stretch goal. |
-| Built-in keyboard (US layout) | **GPU acceleration**: drawing is done by the CPU on the firmware framebuffer. Fast enough for this UI, but the resolution is fixed and there's no external monitor support. |
+| Built-in keyboard (US layout), and USB keyboards/mice plugged straight into the laptop | **GPU acceleration**: drawing is done by the CPU on the firmware framebuffer. Fast enough for this UI, but the resolution is fixed and there's no external monitor support. |
 | TrackPoint + buttons, touchpad as a basic mouse | **Web browser, sound, webcam** |
-| Clock (from the laptop's battery-backed clock, shown in UTC) | **USB keyboards/mice** (stretch goal). Some firmware emulates them as PS/2, so they *might* work. |
-| Home screen, Pals, Write | **Sleep/suspend, battery level, fan control** |
-| Crash screen | **Saving files** (stretch goal; for now everything lives in RAM) |
+| Clock with time zone setting | **USB hubs, USB sticks as storage** (the stick you boot from can't be written by MiiOS) |
+| Home screen, Pals, Write, Files, Clock, Settings, About, crash screen, Turn off / Restart | **Sleep/suspend, battery level, fan control** |
+| Saving notes/pals to the internal SSD (NVMe or SATA) after you set it up in Files | **Ethernet** (no driver yet) |
 | | Touchpad gestures (two-finger scroll, etc.) |
 
 **Brightness and volume keys:** on ThinkPads, the embedded controller often handles brightness
@@ -540,3 +540,46 @@ disk" path. The GPT that MiiOS writes passes Linux's `sgdisk -v` check ("No prob
   - CPU name (read with the `cpuid` instruction), RAM, heap and screen.
   - **Boot timings** (firmware vs. kernel), uptime, and **CPU idle %**.
   - Scheduler stats and storage.
+
+---
+
+## Stretch goal: USB keyboard and mouse (xHCI) ✅
+
+**File:** `kernel/src/drivers/xhci.rs`.
+
+1. **xHCI** is the T470's USB 3 controller. It works from **rings** of 16-byte TRBs in RAM:
+   - a *command ring*: "enable a slot", "address this device", "configure an endpoint";
+   - a *transfer ring* per endpoint: the data itself;
+   - an *event ring*: the controller's replies.
+
+   A **cycle bit** in every TRB flips on each lap of a ring, so both sides can tell new entries
+   from old ones. Writing to a **doorbell** register says "go".
+2. **Start-up, with the real-hardware details:**
+   - Take the controller from the firmware ("**BIOS handoff**"), then reset it.
+   - Give it a device-context table plus any **scratchpad pages** it asks for. Intel
+     controllers need these; QEMU's doesn't.
+   - Support both **32- and 64-byte contexts**. Intel uses 64.
+3. **Setting up each connected port's device:**
+   1. Reset the port.
+   2. **Enable Slot** → **Address Device**.
+   3. Read the device descriptor, fixing EP0's packet size with **Evaluate Context** if needed.
+   4. Read the configuration descriptor and find a HID interface using the **boot protocol**
+      (keyboard = protocol 1, mouse = 2).
+   5. **SET_CONFIGURATION**, **SET_PROTOCOL**(boot), then **Configure Endpoint** for its
+      interrupt-IN endpoint.
+   6. Keep one 8-byte request queued on that endpoint.
+4. **Reports.** A boot keyboard sends 8 bytes: modifier bits plus up to 6 pressed keys (HID
+   *usage* codes). Comparing each report with the previous one gives key presses and releases.
+   USB keyboards don't auto-repeat by themselves, so the driver repeats a held key after 0.5 s,
+   30 times a second.
+5. **A background task** polls the event ring every 4 ms. If no USB keyboard or mouse is found,
+   the task simply ends.
+
+**Also fixed while testing:** on a PC *without* a PS/2 controller, its ports read `0xFF`, which
+made the PS/2 "throw away old bytes" loop spin forever at boot. MiiOS now detects a missing
+controller, and every PS/2 loop is bounded.
+
+**Tested in QEMU** with the PS/2 controller *switched off*, so typing could only arrive over USB.
+
+**Limits:** devices must be plugged directly into the laptop (no hubs, including keyboards with
+a built-in hub), and only boot-protocol keyboards/mice are supported (nearly all are).

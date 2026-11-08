@@ -30,12 +30,18 @@ fn read_raw(bus: u8, dev: u8, func: u8, off: u8) -> u32 { outl(0xCF8, addr(bus, 
 /// Find every device: start at bus 0 and follow PCI-to-PCI bridges to the
 /// buses behind them (much faster than trying all 256 buses).
 pub fn scan() -> Vec<Device> {
-    let mut out = Vec::new();
-    let mut seen = [false; 256];
-    scan_bus(0, &mut out, &mut seen);
+    let out = scan_quiet();
     for d in &out {
         log!("pci {:02x}:{:02x}.{} {:04x}:{:04x} class {:02x}.{:02x}.{:02x} {}", d.bus, d.dev, d.func, d.vendor, d.device, d.class, d.subclass, d.prog_if, describe(d));
     }
+    out
+}
+
+/// Same as `scan`, without logging.
+pub fn scan_quiet() -> Vec<Device> {
+    let mut out = Vec::new();
+    let mut seen = [false; 256];
+    scan_bus(0, &mut out, &mut seen);
     out
 }
 

@@ -70,6 +70,7 @@ extern "C" fn kmain() -> ! {
     arch::init_interrupts();
     task::init();
     task::spawn("storage", fs::probe_task);
+    task::spawn("usb", drivers::xhci::usb_task);
 
     // Milestone 6: the home screen.
     let apps: alloc::vec::Vec<(ui::AppId, alloc::boxed::Box<dyn ui::App>)> = alloc::vec![
