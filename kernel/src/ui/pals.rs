@@ -218,99 +218,9 @@ impl App for Pals {
     }
 
     fn event(&mut self, e: &UiEvent, s: &mut Shared, d: &mut Damage) -> Action {
-        match *e {
-            UiEvent::Key { key, mods } => {
-                // Typing a name.
-                if self.c() == Cat::Name {
-                    let a = s.pals.current_mut();
-                    match key {
-                        Key::Char(ch) if ch.is_ascii_graphic() || ch == ' ' => {
-                            if (a.name_len as usize) < 12 {
-                                let n = a.name_len as usize;
-                                a.name[n] = ch as u8;
-                                a.name_len += 1;
-                                self.changed(s, d);
-                            }
-                            return Action::None;
-                        }
-                        Key::Backspace => { if a.name_len > 0 { a.name_len -= 1; self.changed(s, d); } return Action::None; }
-                        _ => {}
-                    }
-                }
-                match key {
-                    Key::Tab => {
-                        let n = CATS.len();
-                        let next = if mods.shift { (self.cat + n - 1) % n } else { (self.cat + 1) % n };
-                        self.set_cat(next, d);
-                        if self.row == Row::Tabs { self.move_focus(Row::Tabs, next, s, d); }
-                        else if self.row == Row::Grid || self.row == Row::Swatches {
-                            // Keep focus on the current choice of the new category.
-                            let a = s.pals.current_mut();
-                            let v = self.c().get(a) as usize;
-                            d.add(self.focus_rect());
-                            if self.row_len(Row::Grid) > 0 { self.row = Row::Grid; self.col = v; } else { self.row = Row::Tabs; self.col = self.cat; }
-                            d.add(self.focus_rect());
-                        }
-                    }
-                    Key::Escape => return Action::Back,
-                    Key::PageUp => { let i = s.pals.current; if i > 0 { self.switch_pal(i - 1, s, d); } }
-                    Key::PageDown => { let i = s.pals.current; self.switch_pal(i + 1, s, d); }
-                    Key::Left => { if self.col > 0 { self.move_focus(self.row, self.col - 1, s, d); } }
-                    Key::Right => { self.move_focus(self.row, self.col + 1, s, d); }
-                    Key::Up | Key::Down => {
-                        let up = key == Key::Up;
-                        let (row, col) = match (self.row, up) {
-                            (Row::Grid, true) if self.col >= GRID_COLS => (Row::Grid, self.col - GRID_COLS),
-                            (Row::Grid, true) => (Row::Tabs, self.cat),
-                            (Row::Grid, false) if self.col + GRID_COLS < self.row_len(Row::Grid) => (Row::Grid, self.col + GRID_COLS),
-                            (Row::Grid, false) => if self.row_len(Row::Swatches) > 0 { (Row::Swatches, self.c().get_color(s.pals.current_mut()) as usize) } else { (Row::Buttons, 2) },
-                            (Row::Tabs, false) => if self.row_len(Row::Grid) > 0 { (Row::Grid, self.c().get(s.pals.current_mut()) as usize) } else { (Row::Buttons, 2) },
-                            (Row::Tabs, true) => (Row::Tabs, self.col),
-                            (Row::Swatches, true) => (Row::Grid, self.c().get(s.pals.current_mut()) as usize),
-                            (Row::Swatches, false) => (Row::Buttons, 2),
-                            (Row::Buttons, true) => if self.row_len(Row::Swatches) > 0 { (Row::Swatches, 0) } else if self.row_len(Row::Grid) > 0 { (Row::Grid, 0) } else { (Row::Tabs, self.cat) },
-                            (Row::Buttons, false) => (Row::Buttons, self.col),
-                        };
-                        self.move_focus(row, col, s, d);
-                    }
-                    Key::Enter | Key::Char(' ') => {
-                        match self.row {
-                            Row::Buttons => return self.press_button(self.col, s, d),
-                            Row::Tabs => { let v = self.c().get(s.pals.current_mut()) as usize; if self.row_len(Row::Grid) > 0 { self.move_focus(Row::Grid, v, s, d); } }
-                            _ => { self.wave.start(60); }
-                        }
-                    }
-                    _ => {}
-                }
-            }
-            UiEvent::PointerMove { x, y } => {
-                let hb = widgets::back_button().contains(x, y);
-                if hb != self.hover_back { self.hover_back = hb; d.add(widgets::back_button().inflate(12)); }
-                if let Some((row, col)) = self.hit(x, y, s) {
-                    if (row, col) != (self.row, self.col) {
-                        d.add(self.focus_rect());
-                        self.row = row; self.col = col;
-                        d.add(self.focus_rect());
-                    }
-                }
-            }
-            UiEvent::Click { x, y } => {
-                if widgets::back_button().contains(x, y) { return Action::Back; }
-                for i in 0..s.pals.count { if self.roster_rect(i).contains(x, y) { self.switch_pal(i, s, d); return Action::None; } }
-                if self.stage_rect().contains(x, y) { self.wave.start(60); return Action::None; }
-                if let Some((row, col)) = self.hit(x, y, s) {
-                    self.row = row; self.col = col;
-                    if row == Row::Buttons { return self.press_button(col, s, d); }
-                    self.apply_focus(s, d);
-                }
-            }
-            UiEvent::Scroll { dy } => {
-                let n = CATS.len();
-                self.set_cat(if dy > 0 { (self.cat + 1) % n } else { (self.cat + n - 1) % n }, d);
-            }
-            _ => {}
-        }
-        Action::None
+        let a = self.event_inner(e, s, d);
+        if a == Action::Back { let _ = super::save_profile(s); } // remember your pals
+        a
     }
 
     fn tick(&mut self, _s: &mut Shared, d: &mut Damage) -> bool {
@@ -416,4 +326,102 @@ impl App for Pals {
     }
 
     fn color(&self) -> Color { PASTELS[0] }
+}
+
+impl Pals {
+    fn event_inner(&mut self, e: &UiEvent, s: &mut Shared, d: &mut Damage) -> Action {
+        match *e {
+            UiEvent::Key { key, mods } => {
+                // Typing a name.
+                if self.c() == Cat::Name {
+                    let a = s.pals.current_mut();
+                    match key {
+                        Key::Char(ch) if ch.is_ascii_graphic() || ch == ' ' => {
+                            if (a.name_len as usize) < 12 {
+                                let n = a.name_len as usize;
+                                a.name[n] = ch as u8;
+                                a.name_len += 1;
+                                self.changed(s, d);
+                            }
+                            return Action::None;
+                        }
+                        Key::Backspace => { if a.name_len > 0 { a.name_len -= 1; self.changed(s, d); } return Action::None; }
+                        _ => {}
+                    }
+                }
+                match key {
+                    Key::Tab => {
+                        let n = CATS.len();
+                        let next = if mods.shift { (self.cat + n - 1) % n } else { (self.cat + 1) % n };
+                        self.set_cat(next, d);
+                        if self.row == Row::Tabs { self.move_focus(Row::Tabs, next, s, d); }
+                        else if self.row == Row::Grid || self.row == Row::Swatches {
+                            // Keep focus on the current choice of the new category.
+                            let a = s.pals.current_mut();
+                            let v = self.c().get(a) as usize;
+                            d.add(self.focus_rect());
+                            if self.row_len(Row::Grid) > 0 { self.row = Row::Grid; self.col = v; } else { self.row = Row::Tabs; self.col = self.cat; }
+                            d.add(self.focus_rect());
+                        }
+                    }
+                    Key::Escape => return Action::Back,
+                    Key::PageUp => { let i = s.pals.current; if i > 0 { self.switch_pal(i - 1, s, d); } }
+                    Key::PageDown => { let i = s.pals.current; self.switch_pal(i + 1, s, d); }
+                    Key::Left => { if self.col > 0 { self.move_focus(self.row, self.col - 1, s, d); } }
+                    Key::Right => { self.move_focus(self.row, self.col + 1, s, d); }
+                    Key::Up | Key::Down => {
+                        let up = key == Key::Up;
+                        let (row, col) = match (self.row, up) {
+                            (Row::Grid, true) if self.col >= GRID_COLS => (Row::Grid, self.col - GRID_COLS),
+                            (Row::Grid, true) => (Row::Tabs, self.cat),
+                            (Row::Grid, false) if self.col + GRID_COLS < self.row_len(Row::Grid) => (Row::Grid, self.col + GRID_COLS),
+                            (Row::Grid, false) => if self.row_len(Row::Swatches) > 0 { (Row::Swatches, self.c().get_color(s.pals.current_mut()) as usize) } else { (Row::Buttons, 2) },
+                            (Row::Tabs, false) => if self.row_len(Row::Grid) > 0 { (Row::Grid, self.c().get(s.pals.current_mut()) as usize) } else { (Row::Buttons, 2) },
+                            (Row::Tabs, true) => (Row::Tabs, self.col),
+                            (Row::Swatches, true) => (Row::Grid, self.c().get(s.pals.current_mut()) as usize),
+                            (Row::Swatches, false) => (Row::Buttons, 2),
+                            (Row::Buttons, true) => if self.row_len(Row::Swatches) > 0 { (Row::Swatches, 0) } else if self.row_len(Row::Grid) > 0 { (Row::Grid, 0) } else { (Row::Tabs, self.cat) },
+                            (Row::Buttons, false) => (Row::Buttons, self.col),
+                        };
+                        self.move_focus(row, col, s, d);
+                    }
+                    Key::Enter | Key::Char(' ') => {
+                        match self.row {
+                            Row::Buttons => return self.press_button(self.col, s, d),
+                            Row::Tabs => { let v = self.c().get(s.pals.current_mut()) as usize; if self.row_len(Row::Grid) > 0 { self.move_focus(Row::Grid, v, s, d); } }
+                            _ => { self.wave.start(60); }
+                        }
+                    }
+                    _ => {}
+                }
+            }
+            UiEvent::PointerMove { x, y } => {
+                let hb = widgets::back_button().contains(x, y);
+                if hb != self.hover_back { self.hover_back = hb; d.add(widgets::back_button().inflate(12)); }
+                if let Some((row, col)) = self.hit(x, y, s) {
+                    if (row, col) != (self.row, self.col) {
+                        d.add(self.focus_rect());
+                        self.row = row; self.col = col;
+                        d.add(self.focus_rect());
+                    }
+                }
+            }
+            UiEvent::Click { x, y } => {
+                if widgets::back_button().contains(x, y) { return Action::Back; }
+                for i in 0..s.pals.count { if self.roster_rect(i).contains(x, y) { self.switch_pal(i, s, d); return Action::None; } }
+                if self.stage_rect().contains(x, y) { self.wave.start(60); return Action::None; }
+                if let Some((row, col)) = self.hit(x, y, s) {
+                    self.row = row; self.col = col;
+                    if row == Row::Buttons { return self.press_button(col, s, d); }
+                    self.apply_focus(s, d);
+                }
+            }
+            UiEvent::Scroll { dy } => {
+                let n = CATS.len();
+                self.set_cat(if dy > 0 { (self.cat + 1) % n } else { (self.cat + n - 1) % n }, d);
+            }
+            _ => {}
+        }
+        Action::None
+    }
 }

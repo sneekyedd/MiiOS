@@ -52,7 +52,7 @@ pub struct Shell {
 impl Shell {
     pub fn new(screen: Screen, home: Home, apps: Vec<(AppId, Box<dyn App>)>) -> Shell {
         let (w, h) = (screen.width(), screen.height());
-        let shared = Shared { w, h, local_time: time::unix_now(), tz_minutes: 0, frame: 0, pals: super::avatar::PalList::new(crate::arch::cpu::rdtsc()) };
+        let shared = Shared { w, h, local_time: time::unix_now(), tz_minutes: 0, frame: 0, pals: super::avatar::PalList::new(crate::arch::cpu::rdtsc()), open_doc: None };
         Shell {
             screen, shared, home, apps, current: AppId::Home, trans: Transition::None, overlay: Rect::default(),
             px: w / 2, py: h / 2, pointer_visible: false, buttons: (false, false, false),
@@ -222,6 +222,12 @@ impl Shell {
         unsafe { self.home.enter(&mut *s) };
         loop {
             while let Some(e) = input::next_event() { self.handle_input(e); }
+
+            // Storage just came online: load saved pals and settings, redraw everything.
+            if crate::fs::take_just_mounted() {
+                super::load_profile(&mut self.shared);
+                self.screen.damage.add_all();
+            }
 
             // Fixed 60 Hz animation steps, counted from `anim_origin` so the
             // speed is exact even though we wake up at slightly uneven times.

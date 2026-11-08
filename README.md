@@ -467,3 +467,66 @@ then ~15–20 ms of MiiOS kernel until the home screen. Under QEMU the kernel pa
 
 If the screen stays black or the keyboard doesn't respond, note exactly what you see (even a
 photo of the crash screen helps). The fix is usually small.
+
+---
+
+## Stretch goal: saving files (NVMe + SATA drivers, MiiFS) ✅
+
+**Files:** `kernel/src/drivers/` (`pci.rs`, `nvme.rs`, `ahci.rs`, `block.rs`), `kernel/src/fs/` (`gpt.rs`, `miifs.rs`, `crc32.rs`, `mod.rs`), `kernel/src/ui/files.rs`, `kernel/src/ui/settings.rs`, `kernel/src/arch/power.rs`.
+
+### How it fits together
+
+1. **PCI** (`pci.rs`) finds devices. Each one reports what it is (a "class code") and where its
+   registers live (BARs). We start at bus 0 and follow bridges, instead of trying all 256 buses.
+2. **Two disk drivers**, because T470s shipped with either kind of SSD:
+   - **NVMe** (`nvme.rs`). Commands go into a *submission queue* in RAM; we ring a *doorbell*
+     register; the SSD moves the data itself (DMA) and posts a result into a *completion queue*.
+     A "phase" bit tells new results from old ones.
+   - **SATA/AHCI** (`ahci.rs`). Each port gets a command list and a command table holding an ATA
+     command (`READ DMA EXT`, `WRITE DMA EXT`, `IDENTIFY`, `FLUSH`).
+   - Both are **polled**. While waiting, they `yield_now()` to the scheduler, so the UI keeps
+     animating during disk work.
+3. **Disks are found in a background task** (`fs::probe_task`) while the home screen is already
+   showing, so storage adds nothing to boot time. It takes about 5–10 ms in QEMU.
+4. **GPT** (`gpt.rs`) reads the partition table. MiiOS only uses a partition with **its own type
+   GUID** `4D69694F-5344-6174-6150-617274000001` (hex for "MiiOSDataPart"). The USB image
+   already contains one, called `MIIOS-DATA`.
+5. **MiiFS** (`miifs.rs`), our own tiny filesystem:
+   - 4 KiB blocks. Blocks 0 and 1 hold two copies of a file table (up to 62 files, plus a
+     *generation* number and a CRC-32 checksum). Each file is one run of consecutive blocks.
+   - **Crash safety (copy-on-write):** new data always goes to *free* blocks first, then the
+     updated table is written to the *older* table slot with generation + 1. On mount, the
+     valid slot with the highest generation wins. A power cut at any moment leaves you with
+     either the old file or the new one, never a half-written mix.
+6. **What gets saved:**
+   - **Write** saves notes with **Ctrl+S**, and automatically when you leave (Esc or the back
+     button).
+   - **Pals** are saved when you leave the Pals app (`pals.dat`, 32 bytes per pal).
+   - **Settings** (time zone) are saved to `settings.dat`.
+   - Everything loads automatically at boot.
+7. **Files app.** Lists your notes (newest first), with New note (`N`), Open (Enter or
+   double-click) and Delete (asks first).
+8. **Settings app.** Time zone (±30 min steps, so the clock shows your local time), plus
+   **Restart** and **Turn off**. Turn off uses ACPI: we find the FADT table for the power
+   register and scan the DSDT for the `_S5_` "soft off" value. Restart tries the ACPI reset
+   register, then the Intel chipset reset port `0xCF9`, then the keyboard controller.
+
+### Using it on the T470
+
+You boot from the USB stick, but MiiOS has no USB *storage* driver, so it can't save to the stick.
+Instead, Files offers to **set up your internal drive** (you said it can be wiped):
+
+1. Open **Files**. It says "No MiiOS storage yet" and lists your internal drive, e.g.
+   `1. NVMe SAMSUNG MZVLW256... (238 GB)` or `1. SATA ...`.
+2. Press **1** (or click it).
+3. A red warning appears. Type **ERASE** and press **Enter**.
+4. MiiOS writes a fresh GPT with one big `MIIOS-DATA` partition and formats it. From then on,
+   notes, pals and settings are saved there automatically.
+
+> ⚠️ This **erases everything** on that drive, including Windows/Linux and all files. It only
+> happens after you type ERASE. Nothing else in MiiOS ever writes outside its own partition.
+
+**Tested in QEMU:** NVMe and SATA disks; save → reboot → load; and the "erase and set up a blank
+disk" path. The GPT that MiiOS writes passes Linux's `sgdisk -v` check ("No problems found").
+
+**Kernel size:** **360 KiB**.

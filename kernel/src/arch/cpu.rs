@@ -131,3 +131,10 @@ pub unsafe fn fill_u32(dst: *mut u32, val: u32, count: usize) {
 pub unsafe fn copy_bytes(dst: *mut u8, src: *const u8, count: usize) {
     unsafe { asm!("rep movsb", inout("rdi") dst => _, inout("rsi") src => _, inout("rcx") count => _, options(nostack, preserves_flags)) }
 }
+
+#[inline(always)]
+pub fn inw(port: u16) -> u16 {
+    let v: u16;
+    unsafe { asm!("in ax, dx", out("ax") v, in("dx") port, options(nomem, nostack, preserves_flags)) }
+    v
+}

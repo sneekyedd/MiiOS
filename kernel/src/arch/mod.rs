@@ -4,6 +4,7 @@ pub mod cpu;
 pub mod gdt;
 pub mod idt;
 pub mod pic;
+pub mod power;
 
 /// Timer interrupts per second. 1000 = 1 ms resolution.
 pub const TICK_HZ: u32 = 1000;

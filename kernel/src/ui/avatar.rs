@@ -11,6 +11,7 @@
 
 use crate::gfx::color::*;
 use crate::gfx::math::*;
+extern crate alloc;
 use crate::gfx::{Canvas, Color, Rect};
 
 pub const SKIN: [Color; 8] = [hex(0xFFE5D0), hex(0xFDD3B5), hex(0xF2C09A), hex(0xE2A97F), hex(0xC88B60), hex(0xA86C46), hex(0x8A5236), hex(0x6B3F2A)];
@@ -395,5 +396,48 @@ impl PalList {
         self.current = self.count;
         self.count += 1;
         true
+    }
+}
+
+impl Avatar {
+    /// 32 bytes on disk: name (16), name length, then one byte per choice.
+    fn to_bytes(&self) -> [u8; 32] {
+        let mut b = [0u8; 32];
+        b[..16].copy_from_slice(&self.name);
+        let f = [self.name_len, self.face, self.skin, self.hair, self.hair_color, self.eyes, self.eye_color, self.brows,
+                 self.nose, self.mouth, self.glasses, self.glasses_color, self.cheeks, self.body, self.shirt];
+        b[16..31].copy_from_slice(&f);
+        b
+    }
+    fn from_bytes(b: &[u8]) -> Avatar {
+        let mut a = Avatar::default_me();
+        a.name.copy_from_slice(&b[..16]);
+        let f = &b[16..31];
+        a.name_len = f[0].min(16);
+        a.face = f[1] % FACE_STYLES; a.skin = f[2] % 8; a.hair = f[3] % HAIR_STYLES; a.hair_color = f[4] % 8;
+        a.eyes = f[5] % EYE_STYLES; a.eye_color = f[6] % 8; a.brows = f[7] % BROW_STYLES; a.nose = f[8] % NOSE_STYLES;
+        a.mouth = f[9] % MOUTH_STYLES; a.glasses = f[10] % GLASSES_STYLES; a.glasses_color = f[11] % 8;
+        a.cheeks = f[12] % CHEEK_STYLES; a.body = f[13] % BODY_STYLES; a.shirt = f[14] % 8;
+        a
+    }
+}
+
+impl PalList {
+    /// File format "pals.dat": "PAL1", count, then 32 bytes per pal.
+    pub fn to_bytes(&self) -> alloc::vec::Vec<u8> {
+        let mut v = alloc::vec::Vec::with_capacity(8 + self.count * 32);
+        v.extend_from_slice(b"PAL1");
+        v.push(self.count as u8);
+        v.extend_from_slice(&[0, 0, 0]);
+        for a in &self.list[..self.count] { v.extend_from_slice(&a.to_bytes()); }
+        v
+    }
+    pub fn from_bytes(b: &[u8]) -> Option<PalList> {
+        if b.len() < 8 || &b[..4] != b"PAL1" { return None; }
+        let n = (b[4] as usize).clamp(1, MAX_PALS);
+        if b.len() < 8 + n * 32 { return None; }
+        let mut p = PalList { list: [Avatar::default_me(); MAX_PALS], count: n, current: 0 };
+        for i in 0..n { p.list[i] = Avatar::from_bytes(&b[8 + i * 32..8 + (i + 1) * 32]); }
+        Some(p)
     }
 }

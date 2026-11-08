@@ -58,8 +58,6 @@ pub struct Write {
     page: Rect,
     w: i32,
     h: i32,
-    /// Called on Ctrl+S (set by main once storage is available).
-    pub save_hook: Option<fn(&Write) -> Result<(), &'static str>>,
 }
 
 impl Write {
@@ -69,7 +67,7 @@ impl Write {
             rows: Vec::with_capacity(1024), prev_rows: Vec::with_capacity(1024), top: 0, cols: 80,
             clipboard: Vec::new(), undo: Vec::new(), last_edit_kind: 0, blink_on: true, blink_t: 0,
             dragging: false, hover_back: false, words: 0, chars: 0, modified: false, status: FmtBuf::new(),
-            page: Rect::default(), w, h, save_hook: None,
+            page: Rect::default(), w, h,
         };
         let _ = e.name.write_str("notes.txt");
         e.set_text(b"Welcome to Write!\n\nThis is a tiny, fast text editor. Just start typing.\n\nShift+arrows select, Ctrl+C / Ctrl+X / Ctrl+V copy, cut and paste, Ctrl+Z undoes. Long lines wrap at word boundaries automatically, so you can write whole paragraphs without pressing Enter.\n");
@@ -301,11 +299,25 @@ impl Write {
         Pos { line: p.line, col: c }
     }
 
+    /// Save to disk (if there is MiiOS storage).
+    fn save(&mut self, d: &mut Damage) {
+        self.status.clear();
+        if !crate::fs::mounted() {
+            let _ = write!(self.status, "No storage yet: set up a disk in Files");
+        } else {
+            match crate::fs::write(self.name.as_str(), &self.text()) {
+                Ok(()) => { self.modified = false; d.add(Rect::new(0, 0, self.w, 110)); let _ = write!(self.status, "Saved {}", self.name.as_str()); }
+                Err(e) => { let _ = write!(self.status, "Not saved: {}", e); }
+            }
+        }
+        d.add(self.status_rect());
+    }
+
     fn key(&mut self, key: Key, m: Mods, d: &mut Damage) -> Action {
         let sel = m.shift;
         let cur = self.cursor;
         match key {
-            Key::Escape => return Action::Back,
+            Key::Escape => { if self.modified { self.save(d); } return Action::Back; }
             Key::Char(c) if m.ctrl => match c.to_ascii_lowercase() {
                 'a' => {
                     self.anchor = Some(Pos::default());
@@ -343,15 +355,7 @@ impl Write {
                         d.add(self.text_area());
                     }
                 }
-                's' => {
-                    self.status.clear();
-                    match self.save_hook.map(|f| f(self)) {
-                        Some(Ok(())) => { self.modified = false; d.add(Rect::new(0, 0, self.w, 110)); let _ = write!(self.status, "Saved {}", self.name.as_str()); }
-                        Some(Err(e)) => { let _ = write!(self.status, "Not saved: {}", e); }
-                        None => { let _ = write!(self.status, "No storage yet: text stays in memory"); }
-                    }
-                    d.add(self.status_rect());
-                }
+                's' => { self.save(d); }
                 _ => {}
             },
             Key::Char(c) => {
@@ -425,6 +429,14 @@ impl Write {
 impl App for Write {
     fn enter(&mut self, s: &mut Shared) {
         self.w = s.w; self.h = s.h;
+        // Opened from Files: load that document (or start a new, empty one).
+        if let Some(name) = s.open_doc.take() {
+            let data = crate::fs::read(&name).unwrap_or_default();
+            self.set_text(&data);
+            self.name.clear();
+            let _ = self.name.write_str(&name);
+            self.status.clear();
+        }
         self.layout_page();
         self.scroll_to_cursor();
     }
@@ -433,7 +445,7 @@ impl App for Write {
         match *e {
             UiEvent::Key { key, mods } => return self.key(key, mods, d),
             UiEvent::Click { x, y } => {
-                if widgets::back_button().contains(x, y) { return Action::Back; }
+                if widgets::back_button().contains(x, y) { if self.modified { self.save(d); } return Action::Back; }
                 if self.page.contains(x, y) {
                     let p = self.pos_at(x, y);
                     self.move_cursor(p, false, false, d);

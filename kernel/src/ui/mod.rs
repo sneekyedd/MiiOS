@@ -3,10 +3,12 @@
 pub mod anim;
 pub mod avatar;
 pub mod clock;
+pub mod files;
 pub mod home;
 pub mod icons;
 pub mod pals;
 pub mod placeholder;
+pub mod settings;
 pub mod shell;
 pub mod widgets;
 pub mod write;
@@ -42,6 +44,23 @@ pub struct Shared {
     pub tz_minutes: i32,
     pub frame: u64,
     pub pals: avatar::PalList,
+    /// Set by Files before opening Write: which file to open.
+    pub open_doc: Option<alloc::string::String>,
+}
+
+extern crate alloc;
+
+/// Save pals + settings (if storage is available). Returns a message for the user.
+pub fn save_profile(s: &Shared) -> Result<(), &'static str> {
+    if !crate::fs::mounted() { return Err("no storage"); }
+    crate::fs::write("pals.dat", &s.pals.to_bytes())?;
+    crate::fs::write("settings.dat", &s.tz_minutes.to_le_bytes())
+}
+
+/// Load pals + settings saved earlier.
+pub fn load_profile(s: &mut Shared) {
+    if let Ok(b) = crate::fs::read("pals.dat") { if let Some(p) = avatar::PalList::from_bytes(&b) { s.pals = p; } }
+    if let Ok(b) = crate::fs::read("settings.dat") { if b.len() >= 4 { s.tz_minutes = i32::from_le_bytes(b[..4].try_into().unwrap()).clamp(-14 * 60, 14 * 60); } }
 }
 
 pub trait App {

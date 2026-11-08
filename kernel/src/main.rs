@@ -9,6 +9,8 @@
 
 mod arch;
 mod boot;
+mod drivers;
+mod fs;
 mod gfx;
 mod input;
 mod mem;
@@ -67,14 +69,15 @@ extern "C" fn kmain() -> ! {
     input::ps2::init(true);
     arch::init_interrupts();
     task::init();
+    task::spawn("storage", fs::probe_task);
 
     // Milestone 6: the home screen.
     let apps: alloc::vec::Vec<(ui::AppId, alloc::boxed::Box<dyn ui::App>)> = alloc::vec![
         (ui::AppId::Pals, alloc::boxed::Box::new(ui::pals::Pals::new(w, h))),
         (ui::AppId::Write, alloc::boxed::Box::new(ui::write::Write::new(w, h))),
-        (ui::AppId::Files, alloc::boxed::Box::new(ui::placeholder::Placeholder::new("Files", gfx::color::PASTELS[4], "Saving files needs a disk driver (stretch goal)."))),
+        (ui::AppId::Files, alloc::boxed::Box::new(ui::files::Files::new(w, h))),
         (ui::AppId::Clock, alloc::boxed::Box::new(ui::placeholder::Placeholder::new("Clock", gfx::color::PASTELS[1], "Coming soon."))),
-        (ui::AppId::Settings, alloc::boxed::Box::new(ui::placeholder::Placeholder::new("Settings", gfx::color::PASTELS[5], "Coming soon."))),
+        (ui::AppId::Settings, alloc::boxed::Box::new(ui::settings::Settings::new(w, h))),
         (ui::AppId::About, alloc::boxed::Box::new(ui::placeholder::Placeholder::new("About", gfx::color::PASTELS[3], "MiiOS: a tiny Rust OS."))),
     ];
     let home = ui::home::Home::new(w, h);
