@@ -350,3 +350,31 @@ middle-button + TrackPoint) flips categories.
 > **About the "inspired by" part:** the feel (big friendly heads, part-by-part editing, pastel
 > menus) is inspired by console avatar systems, but every shape, colour and layout here is our
 > own original design. No Nintendo art, names or sounds are used.
+
+---
+
+## Milestone 8: Write, the text editor ✅
+
+**File:** `kernel/src/ui/write.rs`.
+
+1. **Document = list of lines** (`Vec<Vec<u8>>`). Typing inserts into one short line, which is fast
+   whatever the document size. Enter splits a line, and Backspace at the start joins two.
+2. **Word wrap.** Lines are cut into screen *rows* of up to ~88 characters, breaking after a space
+   when possible. The row table is rebuilt after each edit (a quick pass over the text) into a
+   reused buffer, so no allocation.
+3. **Minimal redraw.** The old and new row tables are compared, and only rows that actually
+   changed are marked dirty. A normal keystroke redraws one text row (~1400×38 pixels) plus the
+   status line.
+4. **Editing:**
+   - **Moving:** arrows, Home/End, PgUp/PgDn, Ctrl+Home/End, and Ctrl+←/→ to jump by word.
+     Up/Down remember the column you were in.
+   - **Selecting:** Shift + any movement, or click and drag with the mouse.
+   - **Clipboard:** Ctrl+A (select all), Ctrl+C / Ctrl+X / Ctrl+V.
+   - **Undo:** Ctrl+Z, up to 64 steps. Typing is grouped by word.
+   - **Other:** Tab inserts 4 spaces, the mouse wheel (or middle button + TrackPoint) scrolls,
+     the caret blinks, the pointer hides while typing, and a status line shows
+     line/column/word/character counts.
+5. **Ctrl+S** saves the file once the storage stretch goal exists. Until then the document stays
+   in memory while MiiOS runs.
+
+**Kernel size:** **253 KiB**.

@@ -9,6 +9,7 @@ pub mod pals;
 pub mod placeholder;
 pub mod shell;
 pub mod widgets;
+pub mod write;
 
 use crate::gfx::screen::Damage;
 use crate::gfx::{Canvas, Color, Rect};
