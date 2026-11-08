@@ -16,10 +16,13 @@ pub struct Font {
 }
 
 static SMALL_DATA: &[u8] = include_bytes!("../../assets/fonts/spleen-8x16.psfu");
+static MEDIUM_DATA: &[u8] = include_bytes!("../../assets/fonts/spleen-12x24.psfu");
 static LARGE_DATA: &[u8] = include_bytes!("../../assets/fonts/spleen-16x32.psfu");
 
 /// 8x16 pixels per letter.
 pub static SMALL: Font = Font::psf1(SMALL_DATA);
+/// 12x24 pixels per letter.
+pub static MEDIUM: Font = Font::psf2(MEDIUM_DATA);
 /// 16x32 pixels per letter (good for the 1080p screen).
 pub static LARGE: Font = Font::psf2(LARGE_DATA);
 

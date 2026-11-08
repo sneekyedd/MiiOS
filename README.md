@@ -96,3 +96,44 @@ and counts at a fixed rate. We measure that rate against the 1.193 MHz PIT timer
 
 What you should see: a soft white screen with "Hello from MiiOS!" in the top-left, and
 log lines in the terminal.
+
+---
+
+## Milestone 2: framebuffer graphics ✅
+
+**Files:** `kernel/src/gfx/` (`canvas.rs`, `screen.rs`, `math.rs`, `color.rs`, `rect.rs`, `font.rs`), `kernel/src/mem/early.rs`, `kernel/src/demo.rs`.
+
+**Key ideas:**
+
+1. **Back buffer.** We draw into an 8 MB copy of the screen in normal RAM, never into
+   screen memory directly. Screen memory is slow to read, and drawing there directly
+   would show half-finished frames (flicker).
+2. **Dirty rectangles** (`screen.rs`). Every change says "this rectangle changed". Before
+   copying to the screen we redraw *only* those rectangles. The trick: the whole scene's
+   draw code runs with a *clip rectangle*, so anything outside it is skipped almost for free.
+   Overlapping rectangles are merged, with at most 32 tracked.
+3. **Fixed-point math** (`math.rs`). Numbers like 3.25 are stored as `3.25 × 256 = 832` in
+   an ordinary integer. There's no floating point anywhere, so it's fast and needs no special
+   CPU state. Even sine comes from a 256-entry table computed at compile time.
+4. **Anti-aliasing** (`canvas.rs`). Smooth edges on circles, ellipses and rounded rectangles.
+   Each pixel row is sampled at 4 heights. Pixels fully inside a shape are filled with one fast
+   `rep stosd` instruction, and only edge pixels are blended. Thick lines and arcs (smiles!)
+   use *signed distance functions*: "how far is this pixel from the shape?" turns directly into
+   how opaque the pixel is.
+5. **Alpha blending** with two multiplies per pixel, by processing red and blue together.
+6. **Fonts.** Spleen in 8×16, 12×24 and 16×32, embedded at compile time with `include_bytes!`.
+7. **Early allocator** (`mem/early.rs`). Before the real memory manager exists, the 8 MB back
+   buffer is carved off the end of the largest free RAM region in Limine's memory map.
+
+**Results (QEMU, software CPU emulation, so expect real hardware to be several times faster):**
+
+| | |
+|---|---|
+| Full 1920×1080 scene draw + copy | ~45–60 ms (done once, at start) |
+| One animation frame of the bouncing ball | **~0.2–0.3 ms**, ~10,000 pixels instead of 2,073,600 (≈200× less work) |
+| Kernel start → first frame | ~55–75 ms |
+| Kernel size | **113 KiB** (the three fonts are ~56 KiB of that) |
+
+What you should see: six pastel tiles (the first with a blue selection ring), a smiling face,
+lines of different thickness, and a blue ball bouncing smoothly. The terminal prints how long
+each frame took.

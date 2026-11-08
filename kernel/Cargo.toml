@@ -10,3 +10,5 @@ test = false
 bench = false
 
 [dependencies]
+# Spin locks: a "Mutex" that just spins while waiting (we have no OS to sleep on).
+spin = { version = "0.9", default-features = false, features = ["mutex", "spin_mutex", "once"] }
