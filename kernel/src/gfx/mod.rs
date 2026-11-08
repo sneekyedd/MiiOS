@@ -4,6 +4,7 @@ pub mod color;
 pub mod cursor;
 pub mod font;
 pub mod math;
+pub mod panic_screen;
 pub mod rect;
 pub mod screen;
 

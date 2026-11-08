@@ -216,3 +216,49 @@ the sum; translate a heap address back to its physical frame. The serial log sho
 
 **Results:** kernel **125 KiB**. QEMU shows 495 MiB usable with `-m 512M`; the T470 will show
 about 7.8 GiB.
+
+---
+
+## Milestone 5: interrupts, timer and tasks ✅
+
+**Files:** `kernel/src/arch/` (`gdt.rs`, `idt.rs`, `pic.rs`, `apic.rs`), `kernel/src/task.rs`, `kernel/src/gfx/panic_screen.rs`.
+
+1. **Interrupts** let hardware tap the CPU on the shoulder ("a key was pressed!") instead of
+   the CPU constantly asking. That means the CPU can *sleep* (`hlt`) when there's nothing to do.
+2. **GDT + TSS** (`gdt.rs`). Leftover 1980s machinery the CPU still requires. The useful part
+   for us is the TSS, which gives the *double fault* handler its own emergency stack. Without
+   it, a stack overflow would silently reboot the laptop.
+3. **IDT** (`idt.rs`). A table of 256 entries saying where to jump for each interrupt number:
+   0–31 are CPU exceptions (page fault, divide by zero…), 32–47 are hardware IRQs.
+   - The entry code is a few lines of **assembly** that saves all registers, calls
+     `interrupt_dispatch` in Rust, then restores them and returns with `iretq`.
+   - The assembler's `.irp` loop generates the 48 stubs for us.
+   - (Rust's `extern "x86-interrupt"` would do this automatically, but it needs nightly.)
+4. **PIC** (`pic.rs`). The old interrupt controller. We move its IRQs from numbers 8–15 (which
+   clash with CPU exceptions) to 32–47, and unmask only the timer, keyboard and mouse.
+5. **Local APIC** (`apic.rs`). The modern per-core controller. We set its LINT0 input to
+   pass PIC interrupts through ("virtual wire"), instead of trusting the firmware to have done it.
+6. **PIT timer.** Fires 1000 times a second, giving `ticks_ms()`. For precise timing we still
+   use the CPU's TSC. As a safety net, the timer also checks the PS/2 controller every tick,
+   so the keyboard works even if a laptop routes its IRQ oddly.
+7. **Cooperative scheduler** (`task.rs`). Each task has its own 64 KiB stack.
+   - A task runs until it calls `yield_now()`, `sleep_ms()` or `wait_input()`.
+   - Switching tasks (`switch_context`, 15 assembly instructions) saves the 6 registers the
+     compiler expects to survive a call, swaps stack pointers, and restores them.
+   - If no task is ready, the CPU halts until the next interrupt. We disable interrupts
+     while checking, then use `sti; hlt`, so a wake-up can't slip in between.
+   - *Cooperative* (tasks choose when to pause) instead of *preemptive* (the timer forces
+     switches): far simpler, with no locks between tasks, and plenty for a one-user machine
+     where we write every task.
+8. **Crash screen** (`panic_screen.rs`). The T470 has no serial port, so a panic draws a sad face
+   plus the error message (e.g. `page fault at rip=…`) directly on the screen.
+
+**Results:** CPU **~98% idle** while showing the UI (halted between events). Kernel **145 KiB**.
+
+What you should see: the same test screen, plus a line showing uptime, timer ticks, 2 tasks
+(UI + clock), task switches, and CPU idle %, updated every second by the clock task.
+
+> A bug worth learning from: my first try crashed with a page fault on an *instruction fetch*.
+> The interrupt assembly ended by switching to the read-only data section, and the next
+> assembly block (the task switcher) silently landed there too, in memory marked
+> "not executable". The fix was `.pushsection` / `.popsection`.

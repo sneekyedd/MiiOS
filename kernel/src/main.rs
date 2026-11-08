@@ -14,10 +14,12 @@ mod gfx;
 mod input;
 mod mem;
 mod serial;
+mod task;
 mod time;
 mod util;
 
 use arch::cpu;
+use core::sync::atomic::{AtomicBool, Ordering};
 
 /// The very first Rust code that runs. Limine jumps here in 64-bit mode with
 /// paging on, interrupts off, and a stack ready to use.
@@ -52,36 +54,47 @@ extern "C" fn kmain() -> ! {
     let fb_bytes = fb.pitch * fb.height;
     let fb_phys = fb.address as u64 - boot::hhdm_offset();
     match mem::paging::map_framebuffer(fb_phys, fb_bytes) {
-        Ok(p) => { screen.set_front(p); log!("framebuffer remapped write-combining at {:p}", p); }
+        Ok(p) => {
+            screen.set_front(p);
+            gfx::panic_screen::register(p, w, h, fb.pitch as usize / 4);
+            log!("framebuffer remapped write-combining at {:p}", p);
+        }
         Err(e) => log!("could not remap framebuffer: {}", e),
     }
     mem_selftest();
 
-    input::ps2::init(false);
-    let mut demo = demo::Demo::new(w, h);
+    // Milestone 5: interrupts, timer and tasks.
+    input::ps2::init(true);
+    arch::init_interrupts();
+    task::init();
+    task::spawn("clock", clock_task);
 
+    let mut demo = demo::Demo::new(w, h);
     let t0 = time::uptime_us();
     screen.damage.add_all();
     screen.render(|c| demo.draw(c));
     log!("full-screen draw + present: {} us", time::uptime_us() - t0);
-
     log!("boot: {} us before kernel, {} us total", time::us_before_kernel(), time::uptime_us());
     log!("MiiOS ready");
 
-    // Main loop (polling for now; interrupts arrive in milestone 5).
+    // The main task is the UI: handle input, redraw what changed, then sleep
+    // until more input arrives or another task kicks us.
     loop {
-        input::ps2::poll();
-        let mut any = false;
-        while let Some(e) = input::next_event() {
-            demo.handle(e, &mut screen.damage);
-            any = true;
-        }
-        if any {
-            let t = time::uptime_us();
-            let px = screen.render(|c| demo.draw(c));
-            log!("input frame: {} px in {} us", px, time::uptime_us() - t);
-        }
-        core::hint::spin_loop();
+        while let Some(e) = input::next_event() { demo.handle(e, &mut screen.damage); }
+        if CLOCK_CHANGED.swap(false, Ordering::Relaxed) { screen.damage.add(demo::Demo::stats_rect()); }
+        screen.render(|c| demo.draw(c));
+        task::wait_input(1000);
+    }
+}
+
+static CLOCK_CHANGED: AtomicBool = AtomicBool::new(false);
+
+/// A second task: once per second, ask the UI to refresh the stats line.
+fn clock_task() {
+    loop {
+        task::sleep_ms(1000);
+        CLOCK_CHANGED.store(true, Ordering::Relaxed);
+        task::kick();
     }
 }
 
@@ -109,6 +122,8 @@ fn mem_selftest() {
 /// If anything goes badly wrong, Rust calls this. We print why and stop.
 #[panic_handler]
 fn panic(info: &core::panic::PanicInfo) -> ! {
+    cpu::cli();
     log!("KERNEL PANIC: {}", info);
+    gfx::panic_screen::show(&format_args!("{}", info));
     cpu::halt_forever();
 }

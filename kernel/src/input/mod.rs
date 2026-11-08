@@ -65,3 +65,8 @@ impl EventQueue {
 pub static EVENTS: EventQueue = EventQueue::new();
 
 pub fn next_event() -> Option<Event> { EVENTS.pop() }
+
+/// Is there at least one event waiting? (Used by the scheduler to wake tasks.)
+pub fn pending() -> bool {
+    EVENTS.head.load(Ordering::Acquire) != EVENTS.tail.load(Ordering::Acquire)
+}

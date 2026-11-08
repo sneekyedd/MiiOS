@@ -9,6 +9,7 @@ use crate::arch::cpu::{inb, outb, rdtsc};
 use core::sync::atomic::{AtomicU64, Ordering};
 
 static TSC_HZ: AtomicU64 = AtomicU64::new(2_500_000_000);
+static TICKS: AtomicU64 = AtomicU64::new(0);
 static TSC_AT_KMAIN: AtomicU64 = AtomicU64::new(0);
 
 pub const PIT_HZ: u64 = 1_193_182;
@@ -66,4 +67,21 @@ pub fn us_before_kernel() -> u64 {
 pub fn spin_us(us: u64) {
     let end = rdtsc() + us * tsc_hz() / 1_000_000;
     while rdtsc() < end { core::hint::spin_loop(); }
+}
+
+/// Called by the timer interrupt 1000 times per second.
+pub fn on_tick() {
+    TICKS.fetch_add(1, Ordering::Relaxed);
+    // Safety net: also check the keyboard/mouse every tick, in case a laptop's
+    // firmware routes their interrupts somewhere unexpected. Costs ~1 us.
+    crate::input::ps2::poll();
+}
+
+/// Milliseconds since interrupts were enabled (the timer's count).
+pub fn ticks_ms() -> u64 { TICKS.load(Ordering::Relaxed) }
+
+/// Wall-clock time: Unix seconds at boot (from the bootloader) + uptime.
+pub fn unix_now() -> i64 {
+    let boot = crate::boot::BOOT_TIME.get().map(|b| b.unix_seconds).unwrap_or(0);
+    boot + (uptime_us() / 1_000_000) as i64 - (us_before_kernel() / 1_000_000) as i64
 }
