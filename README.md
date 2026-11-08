@@ -262,3 +262,50 @@ What you should see: the same test screen, plus a line showing uptime, timer tic
 > The interrupt assembly ended by switching to the read-only data section, and the next
 > assembly block (the task switcher) silently landed there too, in memory marked
 > "not executable". The fix was `.pushsection` / `.popsection`.
+
+---
+
+## Milestone 6: home screen ✅
+
+**Files:** `kernel/src/ui/` (`shell.rs`, `home.rs`, `anim.rs`, `icons.rs`, `widgets.rs`, `clock.rs`, `placeholder.rs`, `mod.rs`).
+
+1. **Apps.** Every screen implements the small `App` trait: `event()` (input), `tick()` (one 60 Hz
+   animation step), `second()` (clocks) and `draw()`. Each one reports which rectangles it
+   changed, so the shell only redraws those.
+2. **Shell** (`shell.rs`). Owns the screen and the pointer.
+   - Turns raw mouse movement into a pointer position, with simple acceleration so the
+     TrackPoint feels quick.
+   - Turns button presses into clicks.
+   - Hold the **middle button and push** the TrackPoint to scroll, like on Linux.
+   - Typing hides the pointer.
+   - Plays the **zoom animation**: the tile grows to fill the screen, then the app appears.
+     Esc or the round back button shrinks it back into its tile.
+3. **Main loop.** Handle input → step animations at a fixed 60 Hz → update clocks once a
+   second → redraw damaged rectangles → sleep until the next input, frame or second. When
+   nothing moves, the CPU is halted almost all the time.
+4. **Springs** (`anim.rs`). The selection ring glides between tiles and the selected tile grows
+   6%, both driven by springs: `acceleration = stiffness × distance − damping × speed`. With
+   slightly too little damping they overshoot a touch and settle, which gives the bouncy
+   console-menu feel. At start-up the tiles pop in one after another (`ease_out_back`).
+5. **Icons are code, not images** (`icons.rs`). A pencil and notebook, folder, live analog
+   clock, gear, info badge. They're built from circles, rounded rectangles and thick lines,
+   so they're sharp at any size and take a few hundred bytes each.
+6. **Big clock.** The footer shows the time in a 32×64 font. Only the 96 printable characters
+   are copied out of the font file, and that happens at **compile time** (a `const` block), so
+   the other 416 glyphs never reach the kernel file.
+7. **Layout is computed from the screen size**, so it also works at other resolutions.
+8. **Time** comes from the bootloader (which reads the laptop's battery-backed clock) plus
+   uptime, and `clock.rs` converts seconds into a date with integer maths. There's no time zone
+   yet, so it shows UTC; Settings will fix that.
+
+**Results (QEMU software emulation):**
+
+| | |
+|---|---|
+| Kernel start → home screen | **~38 ms** (incl. 10 ms timer calibration and memory self-test) |
+| Animated frame while navigating | ~6.5 ms emulated (expect ~1 ms on the i5-7200U) |
+| Idle | 0 frames drawn, CPU halted |
+| Kernel size | **185 KiB** |
+
+**How to use it:** arrow keys move the selection and **Enter** opens. The mouse/TrackPoint
+selects by hovering and opens with a click. **Esc** goes back.

@@ -9,4 +9,5 @@ pub mod rect;
 pub mod screen;
 
 pub use canvas::Canvas;
+pub use color::Color;
 pub use rect::Rect;

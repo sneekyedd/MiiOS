@@ -9,17 +9,17 @@
 
 mod arch;
 mod boot;
-mod demo;
 mod gfx;
 mod input;
 mod mem;
 mod serial;
 mod task;
 mod time;
+mod ui;
 mod util;
 
 use arch::cpu;
-use core::sync::atomic::{AtomicBool, Ordering};
+extern crate alloc;
 
 /// The very first Rust code that runs. Limine jumps here in 64-bit mode with
 /// paging on, interrupts off, and a stack ready to use.
@@ -67,35 +67,21 @@ extern "C" fn kmain() -> ! {
     input::ps2::init(true);
     arch::init_interrupts();
     task::init();
-    task::spawn("clock", clock_task);
 
-    let mut demo = demo::Demo::new(w, h);
-    let t0 = time::uptime_us();
-    screen.damage.add_all();
-    screen.render(|c| demo.draw(c));
-    log!("full-screen draw + present: {} us", time::uptime_us() - t0);
-    log!("boot: {} us before kernel, {} us total", time::us_before_kernel(), time::uptime_us());
+    // Milestone 6: the home screen.
+    let apps: alloc::vec::Vec<(ui::AppId, alloc::boxed::Box<dyn ui::App>)> = alloc::vec![
+        (ui::AppId::Pals, alloc::boxed::Box::new(ui::placeholder::Placeholder::new("Pals", gfx::color::PASTELS[0], "The avatar maker arrives in milestone 7."))),
+        (ui::AppId::Write, alloc::boxed::Box::new(ui::placeholder::Placeholder::new("Write", gfx::color::PASTELS[2], "The text editor arrives in milestone 8."))),
+        (ui::AppId::Files, alloc::boxed::Box::new(ui::placeholder::Placeholder::new("Files", gfx::color::PASTELS[4], "Saving files needs a disk driver (stretch goal)."))),
+        (ui::AppId::Clock, alloc::boxed::Box::new(ui::placeholder::Placeholder::new("Clock", gfx::color::PASTELS[1], "Coming soon."))),
+        (ui::AppId::Settings, alloc::boxed::Box::new(ui::placeholder::Placeholder::new("Settings", gfx::color::PASTELS[5], "Coming soon."))),
+        (ui::AppId::About, alloc::boxed::Box::new(ui::placeholder::Placeholder::new("About", gfx::color::PASTELS[3], "MiiOS: a tiny Rust OS."))),
+    ];
+    let home = ui::home::Home::new(w, h);
+    let mut shell = ui::shell::Shell::new(screen, home, apps);
+    log!("boot: {} us before kernel, {} us in kernel until UI starts", time::us_before_kernel(), time::uptime_us() - time::us_before_kernel());
     log!("MiiOS ready");
-
-    // The main task is the UI: handle input, redraw what changed, then sleep
-    // until more input arrives or another task kicks us.
-    loop {
-        while let Some(e) = input::next_event() { demo.handle(e, &mut screen.damage); }
-        if CLOCK_CHANGED.swap(false, Ordering::Relaxed) { screen.damage.add(demo::Demo::stats_rect()); }
-        screen.render(|c| demo.draw(c));
-        task::wait_input(1000);
-    }
-}
-
-static CLOCK_CHANGED: AtomicBool = AtomicBool::new(false);
-
-/// A second task: once per second, ask the UI to refresh the stats line.
-fn clock_task() {
-    loop {
-        task::sleep_ms(1000);
-        CLOCK_CHANGED.store(true, Ordering::Relaxed);
-        task::kick();
-    }
+    shell.run();
 }
 
 /// Prove the heap and page tables work: allocate, check, free.

@@ -12,6 +12,7 @@ pub struct Font {
     bytes_per_row: u32,
     bytes_per_glyph: u32,
     glyph_count: u32,
+    first: u32, // character code of the first glyph stored
     glyphs: &'static [u8],
 }
 
@@ -23,6 +24,19 @@ static LARGE_DATA: &[u8] = include_bytes!("../../assets/fonts/spleen-16x32.psfu"
 pub static SMALL: Font = Font::psf1(SMALL_DATA);
 /// 12x24 pixels per letter.
 pub static MEDIUM: Font = Font::psf2(MEDIUM_DATA);
+/// 32x64 pixels, for the big clock and titles. Only printable ASCII
+/// (codes 32-127) is kept: the slice is copied out at *compile time* by a
+/// `const` block, so the other 400+ glyphs never reach the kernel file.
+pub static HUGE: Font = Font { width: 32, height: 64, bytes_per_row: 4, bytes_per_glyph: 256, glyph_count: 96, first: 32, glyphs: &HUGE_GLYPHS };
+const HUGE_SRC: &[u8] = include_bytes!("../../assets/fonts/spleen-32x64.psfu");
+static HUGE_GLYPHS: [u8; 96 * 256] = {
+    let header = u32le(HUGE_SRC, 8) as usize;
+    let mut out = [0u8; 96 * 256];
+    let mut i = 0;
+    while i < out.len() { out[i] = HUGE_SRC[header + 32 * 256 + i]; i += 1; }
+    out
+};
+
 /// 16x32 pixels per letter (good for the 1080p screen).
 pub static LARGE: Font = Font::psf2(LARGE_DATA);
 
@@ -37,7 +51,7 @@ impl Font {
         let h = d[3] as u32;
         let count = if d[2] & 1 != 0 { 512 } else { 256 };
         let (_, glyphs) = d.split_at(4);
-        Font { width: 8, height: h, bytes_per_row: 1, bytes_per_glyph: h, glyph_count: count, glyphs }
+        Font { width: 8, height: h, bytes_per_row: 1, bytes_per_glyph: h, glyph_count: count, first: 0, glyphs }
     }
 
     /// PSF version 2: 32-byte header with explicit sizes.
@@ -49,14 +63,15 @@ impl Font {
         let h = u32le(d, 24);
         let w = u32le(d, 28);
         let (_, glyphs) = d.split_at(header);
-        Font { width: w, height: h, bytes_per_row: (w + 7) / 8, bytes_per_glyph: bpg, glyph_count: count, glyphs }
+        Font { width: w, height: h, bytes_per_row: (w + 7) / 8, bytes_per_glyph: bpg, glyph_count: count, first: 0, glyphs }
     }
 
     /// The bitmap rows for one character. Unknown characters become '?'.
     #[inline]
     pub fn glyph(&self, c: char) -> &'static [u8] {
         let mut i = c as u32;
-        if i >= self.glyph_count || i >= 256 { i = b'?' as u32; }
+        if i < self.first || i - self.first >= self.glyph_count || i >= 256 { i = b'?' as u32; }
+        i -= self.first;
         let s = (i * self.bytes_per_glyph) as usize;
         &self.glyphs[s..s + self.bytes_per_glyph as usize]
     }
