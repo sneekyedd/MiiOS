@@ -28,12 +28,16 @@ pub fn calibrate_tsc() -> u64 {
     outb(0x42, (count >> 8) as u8);
     let t0 = rdtsc();
     outb(0x61, (p & !0x02) | 0x01); // open the gate: counting starts
-    // Bit 5 of port 0x61 turns on when the countdown reaches zero.
+    // Bit 5 of port 0x61 turns on when the countdown reaches zero. If the PIT
+    // is switched off (some laptops do that), give up after ~100 ms worth of
+    // TSC ticks on even a 5 GHz CPU, and ask the CPU for its speed instead.
     let mut ok = false;
-    for _ in 0..50_000_000u64 {
+    let mut t1 = t0;
+    while t1 - t0 < 500_000_000 {
         if inb(0x61) & 0x20 != 0 { ok = true; break; }
+        t1 = rdtsc();
     }
-    let t1 = rdtsc();
+    let t1 = rdtsc().max(t1);
     outb(0x61, p);
     let hz = if ok { (t1 - t0) * 1000 / MS } else { cpuid_tsc_hz().unwrap_or(2_500_000_000) };
     TSC_HZ.store(hz, Ordering::Relaxed);

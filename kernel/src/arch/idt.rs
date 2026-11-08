@@ -2,7 +2,7 @@
 //! where the CPU should jump.
 //!
 //! Numbers 0-31 are CPU *exceptions* (divide by zero, page fault...).
-//! 32-47 are hardware IRQs from the PIC (see pic.rs).
+//! 32-47 are hardware IRQs from the PIC (see pic.rs), 48 is the local APIC timer.
 //!
 //! When an interrupt fires, the CPU pushes the return address, flags and
 //! stack pointer and jumps to our *stub* (written in assembly below). The
@@ -27,7 +27,7 @@ pub struct Frame {
 // themselves; for the rest we push a 0 so every frame looks the same.
 global_asm!(r#"
 .section .text
-.irp n, 0,1,2,3,4,5,6,7,9,15,16,18,19,20,22,23,24,25,26,27,28,31,32,33,34,35,36,37,38,39,40,41,42,43,44,45,46,47
+.irp n, 0,1,2,3,4,5,6,7,9,15,16,18,19,20,22,23,24,25,26,27,28,31,32,33,34,35,36,37,38,39,40,41,42,43,44,45,46,47,48
 isr_stub_\n:
     push 0
     push \n
@@ -81,7 +81,7 @@ isr_common:
 .pushsection .rodata
 .balign 8
 isr_table:
-.irp n, 0,1,2,3,4,5,6,7,8,9,10,11,12,13,14,15,16,17,18,19,20,21,22,23,24,25,26,27,28,29,30,31,32,33,34,35,36,37,38,39,40,41,42,43,44,45,46,47
+.irp n, 0,1,2,3,4,5,6,7,8,9,10,11,12,13,14,15,16,17,18,19,20,21,22,23,24,25,26,27,28,29,30,31,32,33,34,35,36,37,38,39,40,41,42,43,44,45,46,47,48
     .quad isr_stub_\n
 .endr
 isr_spurious:
@@ -90,7 +90,7 @@ isr_spurious:
 "#);
 
 unsafe extern "C" {
-    static isr_table: [u64; 48];
+    static isr_table: [u64; 49];
     static isr_spurious: u64;
 }
 
@@ -110,7 +110,7 @@ static mut IDT: [Entry; 256] = [Entry::EMPTY; 256];
 pub fn init() {
     unsafe {
         let idt = &raw mut IDT;
-        for v in 0..48 {
+        for v in 0..49 {
             let ist = if v == 8 { gdt::DOUBLE_FAULT_IST } else { 0 };
             (*idt)[v] = Entry::new(isr_table[v], ist);
         }
@@ -137,6 +137,11 @@ extern "C" fn interrupt_dispatch(f: &mut Frame) {
     if v < 32 {
         let extra = if v == 14 { cpu::read_cr2() } else { 0 };
         panic!("CPU exception {} ({}) at rip={:#x} error={:#x} cr2={:#x}", v, NAMES[v as usize], f.rip, f.error, extra);
+    }
+    if v == super::apic::TIMER_VECTOR {
+        crate::time::on_tick();
+        super::apic::eoi();
+        return;
     }
     let irq = v - pic::IRQ_BASE;
     if pic::is_spurious(irq) { return; }

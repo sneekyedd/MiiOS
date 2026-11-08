@@ -35,13 +35,15 @@ QEMU_FLAGS := -machine q35 $(KVM) -m $(MEM) \
 	-device VGA,xres=1920,yres=1080,edid=on \
 	-serial stdio -no-reboot
 
-.PHONY: all kernel image run run-headless size clean help
+.PHONY: all kernel image run run-usb run-headless usb size clean help
 
 all: image
 
 help:
 	@echo "make run      - build everything and boot MiiOS in a QEMU window"
 	@echo "make image    - build build/miios.img (the file you flash to a USB stick)"
+	@echo "make run-usb  - like 'make run', but the image is plugged in as a USB stick"
+	@echo "make usb DEV=/dev/sdX - write the image to a USB stick (asks before erasing)"
 	@echo "make size     - show how big the kernel is"
 	@echo "make clean    - delete build output"
 
@@ -62,6 +64,19 @@ build/ovmf_vars.fd:
 
 run: image build/ovmf_vars.fd
 	qemu-system-x86_64 $(QEMU_FLAGS)
+
+# Boot the image as if it were a USB stick (like on the real ThinkPad).
+run-usb: image build/ovmf_vars.fd
+	qemu-system-x86_64 -machine q35 $(KVM) -m $(MEM) \
+		-drive if=pflash,format=raw,readonly=on,file=$(OVMF_CODE) \
+		-drive if=pflash,format=raw,file=build/ovmf_vars.fd \
+		-device qemu-xhci -drive if=none,id=stick,format=raw,file=$(IMAGE) -device usb-storage,drive=stick \
+		-device VGA,xres=1920,yres=1080,edid=on -serial stdio -no-reboot
+
+# Write the image to a real USB stick. Safety checks live in the script.
+usb: image
+	@if [ -z "$(DEV)" ]; then ./tools/flash-usb.sh; exit 1; fi
+	sudo ./tools/flash-usb.sh $(DEV)
 
 # Same, but without a window (used for automated tests; prints serial output).
 run-headless: image build/ovmf_vars.fd

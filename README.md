@@ -378,3 +378,92 @@ middle-button + TrackPoint) flips categories.
    in memory while MiiOS runs.
 
 **Kernel size:** **253 KiB**.
+
+---
+
+## Milestone 9: boot your ThinkPad T470 from a USB stick ✅
+
+### Part A: make the USB stick (on your Linux computer)
+
+You need a USB stick of **128 MB or larger**. **Everything on it will be erased.**
+
+1. Build the image:
+   ```bash
+   make image
+   ```
+   This creates `build/miios.img` (82 MB).
+2. Optional: test it the way the ThinkPad will see it, as a USB stick:
+   ```bash
+   make run-usb
+   ```
+3. Plug in the USB stick. If your desktop opens it in a file manager, close that window.
+4. List the USB disks the flashing script will accept:
+   ```bash
+   ./tools/flash-usb.sh
+   ```
+   Find your stick by its size and model, e.g. `sdb  14.9G usb  SanDisk_Ultra`. Its device is
+   then `/dev/sdb`.
+5. If any of its partitions are mounted, unmount them (replace `sdb` with yours):
+   ```bash
+   sudo umount /dev/sdb?*
+   ```
+6. Write MiiOS to it (replace `sdb` with yours):
+   ```bash
+   make usb DEV=/dev/sdb
+   ```
+   The script **refuses** anything that isn't a whole USB disk (so it can't touch your
+   computer's internal drive) and asks you to type the name again before erasing.
+7. Wait for "Done!", then unplug the stick.
+
+### Part B: set up the T470's firmware (one time)
+
+1. Turn the ThinkPad on and immediately tap **F1** to enter the BIOS setup.
+2. Go to **Security → Secure Boot** and set **Secure Boot** to **Disabled**. Limine isn't signed
+   by Microsoft, so Secure Boot would block it. You can turn it back on later for other OSes.
+3. Go to **Startup → UEFI/Legacy Boot** and choose **UEFI Only** (or "Both" with UEFI first).
+4. Go to **Config → USB** and make sure **USB UEFI BIOS Support** is **Enabled**.
+5. Press **F10**, then **Yes**, to save and restart.
+
+### Part C: boot MiiOS
+
+1. Plug the USB stick into the T470.
+2. Power on and tap **F12** for the boot menu.
+3. Pick the USB stick (it shows its brand name, e.g. "USB HDD: SanDisk").
+4. After the Lenovo logo you should see the MiiOS home screen within a fraction of a second.
+   There's no boot menu, because `timeout: 0` boots instantly.
+5. To turn it off, **hold the power button for ~4 seconds**. Nothing is saved to disk yet, so
+   this is safe.
+6. To go back to your normal OS, unplug the stick and restart.
+
+**Your internal drive is never touched.** MiiOS has no disk driver yet, so it *can't* write
+to the T470's drive at all.
+
+### Safety changes made for real hardware
+
+| Problem on real laptops | What MiiOS does |
+|---|---|
+| Skylake firmware may **switch off the old PIT timer chip** ("8254 clock gating"). | The 1000 Hz tick now comes from the **local APIC timer**, which is built into the CPU and measured against the TSC at boot. The PIT is only a fallback. The TSC measurement times out safely and falls back to asking the CPU (CPUID leaf `0x16`). |
+| Firmware might route keyboard interrupts oddly. | The APIC sets LINT0 to pass the PIC through, *and* the timer tick also checks the PS/2 controller every millisecond, so the keyboard works either way. |
+| There's no serial port to read crash messages. | Crashes draw a sad-face screen with the error text. |
+
+### What works on the T470, and what doesn't (yet)
+
+| ✅ Works | ❌ Does not work |
+|---|---|
+| UEFI boot from USB, 1920×1080 screen | **Wi-Fi, Bluetooth** (huge drivers + firmware). Ethernet is a stretch goal. |
+| Built-in keyboard (US layout) | **GPU acceleration**: drawing is done by the CPU on the firmware framebuffer. Fast enough for this UI, but the resolution is fixed and there's no external monitor support. |
+| TrackPoint + buttons, touchpad as a basic mouse | **Web browser, sound, webcam** |
+| Clock (from the laptop's battery-backed clock, shown in UTC) | **USB keyboards/mice** (stretch goal). Some firmware emulates them as PS/2, so they *might* work. |
+| Home screen, Pals, Write | **Sleep/suspend, battery level, fan control** |
+| Crash screen | **Saving files** (stretch goal; for now everything lives in RAM) |
+| | Touchpad gestures (two-finger scroll, etc.) |
+
+**Brightness and volume keys:** on ThinkPads, the embedded controller often handles brightness
+by itself, so Fn+F5/F6 *may* work even in MiiOS. Volume won't do anything (there's no sound driver).
+
+**Expected boot time on the T470:** ~5–8 s of Lenovo firmware (POST), then Limine (~0.1–0.3 s),
+then ~15–20 ms of MiiOS kernel until the home screen. Under QEMU the kernel part measures
+**~40 ms** with a fully *emulated* CPU, so the real i5 should be several times quicker.
+
+If the screen stays black or the keyboard doesn't respond, note exactly what you see (even a
+photo of the crash screen helps). The fix is usually small.

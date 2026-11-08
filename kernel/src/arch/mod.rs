@@ -14,6 +14,10 @@ pub fn init_interrupts() {
     idt::init();
     pic::init();
     apic::init_virtual_wire();
-    pic::pit_init(TICK_HZ);
+    if !apic::start_timer(TICK_HZ) {
+        // Fallback: the old PIT chip on IRQ 0.
+        pic::pit_init(TICK_HZ);
+        pic::unmask(0);
+    }
     cpu::sti();
 }

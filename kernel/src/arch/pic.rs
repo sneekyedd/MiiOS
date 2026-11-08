@@ -26,8 +26,9 @@ pub fn init() {
     // ICW4: 8086 mode
     outb(PIC1 + 1, 1); io_wait();
     outb(PIC2 + 1, 1); io_wait();
-    // Masks: a 1 bit blocks that IRQ. Allow timer (0), keyboard (1), chain (2), mouse (12).
-    outb(PIC1 + 1, !(1u8 << 0 | 1 << 1 | 1 << 2));
+    // Masks: a 1 bit blocks that IRQ. Allow keyboard (1), chain (2), mouse (12).
+    // (The timer normally comes from the local APIC instead; see apic.rs.)
+    outb(PIC1 + 1, !(1u8 << 1 | 1 << 2));
     outb(PIC2 + 1, !(1u8 << (12 - 8)));
 }
 
@@ -52,4 +53,10 @@ pub fn pit_init(hz: u32) {
     outb(0x43, 0b0011_0100); // channel 0, lo+hi byte, mode 2 (rate generator)
     outb(0x40, divisor as u8);
     outb(0x40, (divisor >> 8) as u8);
+}
+
+/// Allow one IRQ line on the first PIC.
+pub fn unmask(irq: u8) {
+    let m = inb(PIC1 + 1);
+    outb(PIC1 + 1, m & !(1 << irq));
 }
