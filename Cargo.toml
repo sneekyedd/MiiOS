@@ -1,0 +1,16 @@
+[workspace]
+members = ["kernel"]
+resolver = "2"
+
+# "release" is what we ship: small and fast.
+[profile.release]
+opt-level = 3          # fastest code
+lto = "fat"            # link-time optimisation: removes unused code, inlines across crates
+codegen-units = 1      # slower compile, better code
+panic = "abort"        # no stack unwinding machinery (smaller kernel)
+debug = false
+strip = true           # remove symbol names from the final file
+
+[profile.dev]
+panic = "abort"
+opt-level = 1          # even debug builds need to be fast enough to animate

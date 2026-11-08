@@ -1,0 +1,5 @@
+# Pin to stable Rust and make sure the bare-metal target is installed.
+# "x86_64-unknown-none" = 64-bit x86, no operating system underneath us.
+[toolchain]
+channel = "stable"
+targets = ["x86_64-unknown-none"]
