@@ -2,10 +2,55 @@
 
 A tiny, fast hobby operating system written in Rust for a Lenovo ThinkPad T470
 (i5-7200U, 8 GB RAM, 1920×1080, UEFI). It has a playful, pastel home screen,
-your own cartoon avatars, and a text editor.
+your own cartoon avatars ("Pals"), a text editor, and files that survive a reboot.
 
 This README explains **every choice**, so you can learn OS development from it.
 Each milestone has its own section below.
+
+| Home | Pals (avatar maker) |
+|---|---|
+| ![Home screen](docs/screenshots/home.png) | ![Pals](docs/screenshots/pals.png) |
+| **Write** (text editor) | **Files** |
+| ![Write](docs/screenshots/write.png) | ![Files](docs/screenshots/files.png) |
+| **Clock** | **About** (live system info) |
+| ![Clock](docs/screenshots/clock.png) | ![About](docs/screenshots/about.png) |
+
+## Status at a glance
+
+| # | Milestone | Status |
+|---|---|---|
+| 1 | Boots in QEMU, prints text | ✅ |
+| 2 | Framebuffer graphics: shapes, rounded rects, bitmap fonts, dirty rectangles | ✅ |
+| 3 | PS/2 keyboard + mouse/TrackPoint | ✅ |
+| 4 | Memory: frame allocator, paging, heap | ✅ |
+| 5 | Timer, interrupts, cooperative scheduler | ✅ |
+| 6 | Home screen with tile grid, keyboard + mouse navigation | ✅ |
+| 7 | Avatar creator (Pals), avatars on the home screen | ✅ |
+| 8 | Text editor (Write) | ✅ |
+| 9 | Bootable USB image + T470 flashing guide | ✅ (QEMU-tested as a USB stick; **not yet tried on the real T470**) |
+| 10 | Stretch: NVMe + SATA drivers, MiiFS filesystem, USB keyboard/mouse | ✅ (QEMU-tested) |
+| – | Ethernet | ❌ not started (see "What's next") |
+
+**Numbers** (QEMU with a *software-emulated* CPU, so real hardware will be faster):
+
+| | |
+|---|---|
+| Kernel file size | **~389 KiB** (including four embedded fonts) |
+| Kernel start → home screen | **~40–50 ms** (10 ms of it is measuring the CPU clock) |
+| Firmware + bootloader before that | ~2 s in QEMU; on the T470 it's mostly Lenovo's POST (~5–8 s) |
+| Finding disks | ~5–10 ms, done in the background while the UI is already up |
+| An animated frame | a few ms emulated; only changed rectangles are redrawn |
+| Idle | 0 frames drawn, CPU halted ~98% of the time |
+
+### Where to start reading the code
+
+1. `kernel/src/main.rs`: the boot sequence, top to bottom.
+2. `kernel/src/gfx/canvas.rs` + `screen.rs`: how pixels get drawn, and why only dirty rectangles
+   are redrawn.
+3. `kernel/src/ui/shell.rs` + `home.rs`: the main loop and the home screen.
+4. `kernel/src/ui/avatar.rs`: drawing a whole cartoon person from ellipses.
+5. `kernel/src/arch/`: interrupts and timers, the "classic OS" core.
+6. `kernel/src/drivers/` + `kernel/src/fs/`: talking to real hardware, and a crash-safe filesystem.
 
 ---
 
@@ -56,7 +101,14 @@ prints the kernel size, and `make clean` deletes all build output.
 | `kernel/src/arch/` | CPU-specific code: I/O ports, interrupts, GDT, timer chips. |
 | `kernel/src/serial.rs` | Debug log over the serial port. `log!()` prints to your terminal under QEMU. |
 | `kernel/src/time.rs` | Measures the CPU's timestamp counter so we can tell the time. |
-| `kernel/src/gfx/` | Graphics: fonts, drawing, dirty rectangles. |
+| `kernel/src/gfx/` | Graphics: fonts, drawing, dirty rectangles, crash screen. |
+| `kernel/src/mem/` | Physical frames, page tables, heap. |
+| `kernel/src/input/` | PS/2 keyboard + mouse, event queue. |
+| `kernel/src/task.rs` | Cooperative task scheduler. |
+| `kernel/src/ui/` | Shell, home screen, apps (Pals, Write, Files, Clock, Settings, About). |
+| `kernel/src/drivers/` | PCI, NVMe, SATA (AHCI), USB (xHCI). |
+| `kernel/src/fs/` | GPT partitions, MiiFS filesystem, storage manager. |
+| `tools/flash-usb.sh` | Safely writes the image to a USB stick. |
 | `kernel/linker.ld` | Tells the linker where in memory each part of the kernel goes. |
 | `kernel/build.rs` | Passes the linker script to the linker. |
 | `.cargo/config.toml` | Always builds for bare metal, with kernel-friendly compiler flags. |
@@ -583,3 +635,22 @@ controller, and every PS/2 loop is bounded.
 
 **Limits:** devices must be plugged directly into the laptop (no hubs, including keyboards with
 a built-in hub), and only boot-protocol keyboards/mice are supported (nearly all are).
+
+---
+
+## What's next (ideas)
+
+- **Ethernet.** The T470's port is an Intel I219-V. A driver plus a small network stack would
+  allow things like setting the clock from the internet or sending notes to another computer.
+  A *web browser* stays out of reach for a hobby OS (modern browsers are tens of millions of
+  lines).
+- **USB storage**, so notes can live on the boot stick instead of the internal SSD (USB "bulk-only
+  transport" + SCSI commands on top of the existing xHCI driver).
+- **USB hubs**, **more keyboard layouts**, **multi-touch touchpad** (Synaptics/Elan protocol).
+- **Battery level** and **brightness control** (needs a real ACPI interpreter).
+
+## Licences
+
+- MiiOS code: yours.
+- Spleen font: BSD 2-clause, © Frederic Cambus (`kernel/assets/fonts/LICENSE-spleen`).
+- Limine bootloader: BSD 2-clause, downloaded at build time (not stored in this repository).
