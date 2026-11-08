@@ -1,6 +1,7 @@
 //! Small helpers.
 
 /// A fixed-size text buffer you can `write!` into without a heap.
+#[derive(Clone, Copy)]
 pub struct FmtBuf<const N: usize> { buf: [u8; N], len: usize }
 impl<const N: usize> FmtBuf<N> {
     pub const fn new() -> Self { Self { buf: [0; N], len: 0 } }
@@ -15,3 +16,5 @@ impl<const N: usize> core::fmt::Write for FmtBuf<N> {
         Ok(())
     }
 }
+
+impl<const N: usize> Default for FmtBuf<N> { fn default() -> Self { Self::new() } }

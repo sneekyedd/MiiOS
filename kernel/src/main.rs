@@ -76,9 +76,9 @@ extern "C" fn kmain() -> ! {
         (ui::AppId::Pals, alloc::boxed::Box::new(ui::pals::Pals::new(w, h))),
         (ui::AppId::Write, alloc::boxed::Box::new(ui::write::Write::new(w, h))),
         (ui::AppId::Files, alloc::boxed::Box::new(ui::files::Files::new(w, h))),
-        (ui::AppId::Clock, alloc::boxed::Box::new(ui::placeholder::Placeholder::new("Clock", gfx::color::PASTELS[1], "Coming soon."))),
+        (ui::AppId::Clock, alloc::boxed::Box::new(ui::clockapp::ClockApp::new(w, h))),
         (ui::AppId::Settings, alloc::boxed::Box::new(ui::settings::Settings::new(w, h))),
-        (ui::AppId::About, alloc::boxed::Box::new(ui::placeholder::Placeholder::new("About", gfx::color::PASTELS[3], "MiiOS: a tiny Rust OS."))),
+        (ui::AppId::About, alloc::boxed::Box::new(ui::about::About::new(w, h, time::uptime_us() - time::us_before_kernel()))),
     ];
     let home = ui::home::Home::new(w, h);
     let mut shell = ui::shell::Shell::new(screen, home, apps);

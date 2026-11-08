@@ -2,12 +2,13 @@
 
 pub mod anim;
 pub mod avatar;
+pub mod about;
 pub mod clock;
+pub mod clockapp;
 pub mod files;
 pub mod home;
 pub mod icons;
 pub mod pals;
-pub mod placeholder;
 pub mod settings;
 pub mod shell;
 pub mod widgets;

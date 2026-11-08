@@ -530,3 +530,13 @@ Instead, Files offers to **set up your internal drive** (you said it can be wipe
 disk" path. The GPT that MiiOS writes passes Linux's `sgdisk -v` check ("No problems found").
 
 **Kernel size:** **360 KiB**.
+
+### Clock and About apps ✅
+
+- **Clock** (`ui/clockapp.rs`): a big analog clock whose second hand **sweeps smoothly**, using
+  sub-second time from the TSC. Only the clock face's rectangle is redrawn each frame. There's
+  also a stopwatch: **Space** starts/stops, **R** resets.
+- **About** (`ui/about.rs`): live system facts, refreshed every second.
+  - CPU name (read with the `cpuid` instruction), RAM, heap and screen.
+  - **Boot timings** (firmware vs. kernel), uptime, and **CPU idle %**.
+  - Scheduler stats and storage.
