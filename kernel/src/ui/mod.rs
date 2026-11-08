@@ -1,9 +1,11 @@
 //! The user interface: the shell (app switching, pointer) and the apps.
 
 pub mod anim;
+pub mod avatar;
 pub mod clock;
 pub mod home;
 pub mod icons;
+pub mod pals;
 pub mod placeholder;
 pub mod shell;
 pub mod widgets;
@@ -38,6 +40,7 @@ pub struct Shared {
     pub local_time: i64,
     pub tz_minutes: i32,
     pub frame: u64,
+    pub pals: avatar::PalList,
 }
 
 pub trait App {

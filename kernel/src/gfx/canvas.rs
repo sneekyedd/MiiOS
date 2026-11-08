@@ -282,6 +282,18 @@ impl Canvas {
         self.line_fx(fx(x0) + HALF, fx(y0) + HALF, fx(x1) + HALF, fx(y1) + HALF, fx(width), c);
     }
 
+    /// Circle outline (a ring) with soft edges.
+    pub fn ring_fx(&mut self, cx: Fx, cy: Fx, r: Fx, width: Fx, c: Color) {
+        let ext = r + width;
+        let bb = Rect::new(fx_floor(cx - ext) - 1, fx_floor(cy - ext) - 1, fx_ceil(2 * ext) + 3, fx_ceil(2 * ext) + 3);
+        let hw = width / 2;
+        self.fill_sdf(bb, c, |px, py| {
+            let (dx, dy) = ((px - cx) as i64, (py - cy) as i64);
+            let d = isqrt((dx * dx + dy * dy) as u64) as i64 - r as i64;
+            (d.abs() - hw as i64) as Fx
+        });
+    }
+
     /// Arc of a circle (centre cx,cy radius r), only the part below the line
     /// y = cy + cut (cut can be negative). Round ends. Perfect for smiles:
     /// a smile is the bottom of a circle; a frown is the top (use `up = true`).

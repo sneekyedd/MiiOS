@@ -52,7 +52,7 @@ pub struct Shell {
 impl Shell {
     pub fn new(screen: Screen, home: Home, apps: Vec<(AppId, Box<dyn App>)>) -> Shell {
         let (w, h) = (screen.width(), screen.height());
-        let shared = Shared { w, h, local_time: time::unix_now(), tz_minutes: 0, frame: 0 };
+        let shared = Shared { w, h, local_time: time::unix_now(), tz_minutes: 0, frame: 0, pals: super::avatar::PalList::new(crate::arch::cpu::rdtsc()) };
         Shell {
             screen, shared, home, apps, current: AppId::Home, trans: Transition::None, overlay: Rect::default(),
             px: w / 2, py: h / 2, pointer_visible: false, buttons: (false, false, false),

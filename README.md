@@ -309,3 +309,44 @@ What you should see: the same test screen, plus a line showing uptime, timer tic
 
 **How to use it:** arrow keys move the selection and **Enter** opens. The mouse/TrackPoint
 selects by hovering and opens with a click. **Esc** goes back.
+
+---
+
+## Milestone 7: Pals, the avatar maker ✅
+
+**Files:** `kernel/src/ui/avatar.rs` (data + drawing), `kernel/src/ui/pals.rs` (the editor app), `kernel/src/ui/home.rs` (pals on the home screen).
+
+1. **An avatar is ~30 bytes:** name, plus small numbers for face shape, skin tone, hair style and
+   colour, eyes and eye colour, brows, nose, mouth, glasses and frame colour, cheeks, body size and
+   shirt colour. That's tiny to keep in memory and trivial to save to disk later.
+2. **Drawn entirely from shapes**, sized relative to the head width, so the same code draws a
+   70 px roster bubble, a tile icon or a 540 px preview.
+   - Parts: 5 face shapes, 8 hair styles (bald, short, bob, spiky, long, bun, curly, swoop),
+     6 eye styles, 4 brows, 4 noses, 6 mouths, 4 glasses, 4 cheek styles (blush/freckles),
+     6 body sizes, with 8-colour palettes for skin, hair, eyes, frames and shirts.
+   - Hair is drawn in two layers: back hair before the face, front hair after. The "cap" of
+     hair is a big ellipse cut off at the fringe line using the **clip rectangle**, the same
+     trick dirty rectangles use.
+   - Glasses are **ring outlines** (a new signed-distance primitive), so the eyes show through.
+3. **The editor** (Pals tile).
+   - Left: your pal on a stage, plus a row of all your pals.
+   - Right: category tabs, then a grid of choices. Each choice is a **mini preview of your own
+     pal** with that option applied. Below that are colour swatches and buttons.
+   - Changes apply instantly and the preview "pops" on a spring.
+   - **Surprise me!** randomises the look (keeping the name), **New pal** adds a random friend
+     (up to 8), and **Name** lets you type a name.
+4. **On the home screen** your pal (pal #0) stands bottom-left and **waves** when you arrive.
+   Up to four friends stand bottom-right. Someone **blinks** every few seconds. The Pals tile
+   shows your face, and the greeting says "Hello, *name*!".
+5. **Cheap animation.** Blinks and waves are short tweens started by the once-a-second clock
+   tick. Only the avatar's rectangle is redrawn, and the CPU goes back to sleep afterwards.
+
+**Keyboard:** Tab / Shift+Tab = category, arrows = choose (applies immediately), Enter = press a
+button, PgUp/PgDn = switch pal, Esc = done. **Mouse:** click anything; the scroll wheel (or
+middle-button + TrackPoint) flips categories.
+
+**Kernel size:** **228 KiB**. Pals live in memory for now; saving them needs the storage stretch goal.
+
+> **About the "inspired by" part:** the feel (big friendly heads, part-by-part editing, pastel
+> menus) is inspired by console avatar systems, but every shape, colour and layout here is our
+> own original design. No Nintendo art, names or sounds are used.

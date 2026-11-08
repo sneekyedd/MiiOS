@@ -70,7 +70,7 @@ extern "C" fn kmain() -> ! {
 
     // Milestone 6: the home screen.
     let apps: alloc::vec::Vec<(ui::AppId, alloc::boxed::Box<dyn ui::App>)> = alloc::vec![
-        (ui::AppId::Pals, alloc::boxed::Box::new(ui::placeholder::Placeholder::new("Pals", gfx::color::PASTELS[0], "The avatar maker arrives in milestone 7."))),
+        (ui::AppId::Pals, alloc::boxed::Box::new(ui::pals::Pals::new(w, h))),
         (ui::AppId::Write, alloc::boxed::Box::new(ui::placeholder::Placeholder::new("Write", gfx::color::PASTELS[2], "The text editor arrives in milestone 8."))),
         (ui::AppId::Files, alloc::boxed::Box::new(ui::placeholder::Placeholder::new("Files", gfx::color::PASTELS[4], "Saving files needs a disk driver (stretch goal)."))),
         (ui::AppId::Clock, alloc::boxed::Box::new(ui::placeholder::Placeholder::new("Clock", gfx::color::PASTELS[1], "Coming soon."))),

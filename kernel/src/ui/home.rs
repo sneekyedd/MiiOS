@@ -10,6 +10,7 @@
 //! parts of the screen are redrawn.
 
 use super::anim::{Spring, Tween};
+use super::avatar::{self, Pose};
 use super::{icons, Action, App, AppId, Shared, UiEvent};
 use crate::gfx::color::*;
 use crate::gfx::math::*;
@@ -68,7 +69,11 @@ pub struct Home {
     ring_rect: Rect,       // where the ring was last drawn (for damage)
     lay: Layout,
     last_min: i64,
-    pub avatar_hook: Option<fn(&mut Canvas, i32, i32, i32, u64)>, // draws the user's avatar (milestone 7)
+    wave: Tween,          // your pal waves hello
+    blink: Tween,         // someone blinks
+    blink_who: usize,
+    w: i32,
+    h: i32,
 }
 
 impl Home {
@@ -85,7 +90,10 @@ impl Home {
             ring_rect: t,
             lay,
             last_min: -1,
-            avatar_hook: None,
+            wave: Tween::default(),
+            blink: Tween::default(),
+            blink_who: 0,
+            w, h,
         }
     }
 
@@ -124,6 +132,15 @@ impl Home {
     }
 
     fn footer_rect(&self, s: &Shared) -> Rect { Rect::new(0, self.lay.footer_y, s.w, s.h - self.lay.footer_y) }
+
+    /// Where pal `i` stands in the footer: (centre x, feet y, height).
+    fn pal_spot(&self, i: usize) -> (i32, i32, i32) {
+        let fh = self.h - self.lay.footer_y;
+        if i == 0 { (self.w / 14, self.h - 14, fh * 135 / 100) }
+        else { (self.w - self.w / 16 - (i as i32 - 1) * (fh * 7 / 10), self.h - 14, fh) }
+    }
+
+    fn pal_rect(&self, i: usize) -> Rect { let (x, y, h) = self.pal_spot(i); avatar::body_rect(x, y, h) }
 }
 
 /// The shared soft background: a gentle vertical gradient with a dot grid.
@@ -144,7 +161,11 @@ pub fn background(c: &mut Canvas, top: Color, bottom: Color) {
 }
 
 impl App for Home {
-    fn enter(&mut self, s: &mut Shared) { self.lay = layout(s.w, s.h); }
+    fn enter(&mut self, s: &mut Shared) {
+        self.lay = layout(s.w, s.h);
+        self.w = s.w; self.h = s.h;
+        self.wave.start(90);
+    }
 
     fn event(&mut self, e: &UiEvent, _s: &mut Shared, d: &mut Damage) -> Action {
         match *e {
@@ -175,6 +196,8 @@ impl App for Home {
         for i in 0..N {
             if self.grow[i].step() { moving = true; d.add(self.lay.tile_damage(i)); }
         }
+        if self.wave.step() { moving = true; d.add(self.pal_rect(0)); }
+        if self.blink.step() { moving = true; d.add(self.pal_rect(self.blink_who)); }
         let mut ring_moved = false;
         for sp in self.ring.iter_mut() { ring_moved |= sp.step(); }
         if ring_moved {
@@ -193,8 +216,11 @@ impl App for Home {
             d.add(self.footer_rect(s));
             d.add(self.lay.tile_damage(3)); // the clock tile's hands
         }
-        // The avatar in the footer blinks now and then.
-        if s.local_time % 4 == 0 { d.add(Rect::new(0, self.lay.footer_y - 120, s.w / 4, s.h - self.lay.footer_y + 120)); }
+        // Pals blink now and then (a different one each time).
+        if s.local_time % 3 == 0 && !self.blink.running {
+            self.blink_who = (s.local_time / 3) as usize % s.pals.count.min(5);
+            self.blink.start(8);
+        }
     }
 
     fn draw(&self, c: &mut Canvas, s: &Shared) {
@@ -204,8 +230,10 @@ impl App for Home {
 
         // ---- Header: greeting and date ----
         let hy = lay.y0 / 2 - 20;
-        c.text(&font::LARGE, lay.x0, hy, "Hello!", INK);
-        c.text(&font::MEDIUM, lay.x0 + 16 * 7 + 8, hy + 6, "What shall we do today?", INK_SOFT);
+        let mut hello = FmtBuf::<32>::new();
+        let _ = write!(hello, "Hello, {}!", s.pals.me().name());
+        let hx = c.text(&font::LARGE, lay.x0, hy, hello.as_str(), INK);
+        c.text(&font::MEDIUM, hx + 16, hy + 6, "What shall we do today?", INK_SOFT);
         let mut date = FmtBuf::<32>::new();
         let _ = write!(date, "{} {} {}", super::clock::WEEKDAYS[dt.weekday as usize], dt.day, super::clock::MONTHS[(dt.month - 1) as usize]);
         let dw = font::LARGE.text_width(date.as_str()) as i32;
@@ -241,10 +269,7 @@ impl App for Home {
                 Some(AppId::Clock) => icons::clock(c, icx, icy, icon_size, dt.hour, dt.min),
                 Some(AppId::Settings) => icons::settings(c, icx, icy, icon_size),
                 Some(AppId::About) => icons::about(c, icx, icy, icon_size),
-                Some(AppId::Pals) => match self.avatar_hook {
-                    Some(f) => f(c, icx, icy + icon_size / 10, icon_size * 12 / 10, s.frame),
-                    None => icons::about(c, icx, icy, icon_size),
-                },
+                Some(AppId::Pals) => avatar::draw_head(c, icx, icy + icon_size / 10, icon_size * 11 / 10, s.pals.me(), Pose::default()),
                 _ => {}
             }
             c.text_centered(&font::LARGE, cx, r.bottom() - r.h / 4 - 4, t.name, INK);
@@ -274,8 +299,16 @@ impl App for Home {
             let mut dd = FmtBuf::<40>::new();
             let _ = write!(dd, "{}, {} {} {}", super::clock::WEEKDAYS[dt.weekday as usize], dt.day, super::clock::MONTHS[(dt.month - 1) as usize], dt.year);
             c.text_centered(&font::MEDIUM, s.w / 2, fy + 104, dd.as_str(), INK_SOFT);
-            // Your avatar stands in the bottom-left corner (milestone 7).
-            if let Some(f) = self.avatar_hook { f(c, s.w / 8, fy + 20, (s.h - fy) * 13 / 10, s.frame); }
+        }
+        // ---- Pals standing in the footer: you on the left, friends on the right ----
+        for i in 0..s.pals.count.min(5) {
+            let (x, y, h) = self.pal_spot(i);
+            let pose = Pose {
+                blink: self.blink.running && self.blink_who == i,
+                wave: if i == 0 && self.wave.running { self.wave.t.max(1) } else { 0 },
+                bounce: 0,
+            };
+            avatar::draw_body(c, x, y, h, &s.pals.list[i], pose);
         }
     }
 
