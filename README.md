@@ -137,3 +137,43 @@ log lines in the terminal.
 What you should see: six pastel tiles (the first with a blue selection ring), a smiling face,
 lines of different thickness, and a blue ball bouncing smoothly. The terminal prints how long
 each frame took.
+
+---
+
+## Milestone 3: keyboard, mouse and TrackPoint ✅
+
+**Files:** `kernel/src/input/` (`ps2.rs`, `keyboard.rs`, `mouse.rs`, `mod.rs`), `kernel/src/gfx/cursor.rs`.
+
+**How it works:**
+
+1. **The PS/2 controller** (`ps2.rs`) is an old but still-present chip, today built into the
+   T470's embedded controller. It has two ports: the keyboard, and a "mouse" port that the
+   TrackPoint and touchpad share. We talk to it through I/O ports `0x60` (data) and `0x64`
+   (status/command). Setup steps: disable both ports, flush old bytes, turn on *translation*
+   (so every keyboard speaks the simple "scancode set 1"), enable the ports, then configure
+   the mouse.
+2. **Keyboard** (`keyboard.rs`). Every key sends a *scancode* when pressed, and the same code
+   + `0x80` when released. Arrow keys etc. are prefixed with `0xE0`. A table turns codes into
+   US-layout characters, and Shift/Ctrl/Alt/Caps Lock are tracked as we go.
+3. **Mouse** (`mouse.rs`). The mouse sends 3-byte packets (buttons, X movement, Y movement),
+   or 4 bytes if it has a scroll wheel. We unlock the wheel with the classic "IntelliMouse"
+   knock: set sample rate 200, 100, 80, then ask for the ID. Bit 3 of the first byte is always
+   1, which lets us re-sync if a byte is lost.
+4. **Event queue** (`input/mod.rs`). Drivers push `Event`s into a fixed-size ring buffer and
+   apps pop them. It uses no locks and no heap, so it's safe to push from interrupt handlers
+   later.
+5. **Pointer.** A 13×21 bitmap arrow. When it moves, only its old and new rectangles are
+   redrawn (~550 pixels).
+6. **For now we *poll*:** the main loop keeps asking "any bytes?". Milestone 5 switches to
+   interrupts, so the CPU can sleep between key presses.
+
+**T470 notes:** the built-in keyboard and TrackPoint work through PS/2. The touchpad works as a
+basic mouse (move + click), but has no multi-touch gestures. **USB keyboards and mice won't
+work** until the USB stretch goal. (Some firmware has a "USB legacy" option that pretends
+a USB keyboard is PS/2, so it *may* work by luck.)
+
+**Results:** a pointer move redraws ~550 pixels in ~0.1 ms (emulated). Kernel size: **112 KiB**.
+
+What you should see: type and the text appears in the white box, with the last key shown
+below it. Move the mouse (click inside the QEMU window to capture it; Ctrl+Alt+G releases
+it): tiles lift when hovered and get a blue ring when clicked.

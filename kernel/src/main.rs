@@ -11,9 +11,11 @@ mod arch;
 mod boot;
 mod demo;
 mod gfx;
+mod input;
 mod mem;
 mod serial;
 mod time;
+mod util;
 
 use arch::cpu;
 
@@ -45,29 +47,31 @@ extern "C" fn kmain() -> ! {
     let mut screen = gfx::screen::Screen::new(
         fb.address as *mut u32, fb.pitch as usize / 4, mem::early::phys_to_virt(back), w, h);
 
+    input::ps2::init(false);
+    let mut demo = demo::Demo::new(w, h);
+
     let t0 = time::uptime_us();
     screen.damage.add_all();
-    screen.render(|c| demo::draw(c, 0));
-    let full = time::uptime_us() - t0;
-    log!("full-screen draw + present: {} us", full);
+    screen.render(|c| demo.draw(c));
+    log!("full-screen draw + present: {} us", time::uptime_us() - t0);
 
     log!("boot: {} us before kernel, {} us total", time::us_before_kernel(), time::uptime_us());
     log!("MiiOS ready");
 
-    // Animate a small bouncing ball to show dirty rectangles: only ~2 small
-    // rects are redrawn and copied per frame instead of the whole screen.
-    let mut frame = 0;
+    // Main loop (polling for now; interrupts arrive in milestone 5).
     loop {
-        let t = time::uptime_us();
-        let old = demo::ball_rect(frame);
-        frame += 1;
-        screen.damage.add(old);
-        screen.damage.add(demo::ball_rect(frame));
-        let px = screen.render(|c| demo::draw(c, frame));
-        if frame % 120 == 0 {
-            log!("frame {}: redrew {} px in {} us", frame, px, time::uptime_us() - t);
+        input::ps2::poll();
+        let mut any = false;
+        while let Some(e) = input::next_event() {
+            demo.handle(e, &mut screen.damage);
+            any = true;
         }
-        time::spin_us(16_000);
+        if any {
+            let t = time::uptime_us();
+            let px = screen.render(|c| demo.draw(c));
+            log!("input frame: {} px in {} us", px, time::uptime_us() - t);
+        }
+        core::hint::spin_loop();
     }
 }
 
