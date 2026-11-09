@@ -2,8 +2,8 @@
 systemd-sysv udev dbus-user-session libpam-systemd sudo polkitd
 linux-image-amd64 intel-microcode firmware-iwlwifi firmware-intel-graphics firmware-sof-signed wireless-regdb zstd
 systemd-boot-efi efibootmgr dosfstools e2fsprogs fdisk rsync cloud-guest-utils
-network-manager iproute2 ca-certificates
+network-manager wpasupplicant iw rfkill iproute2 ca-certificates
 sway seatd foot libgl1-mesa-dri libegl1 libxkbcommon0 libwayland-client0 grim jq
 firefox-esr fonts-dejavu-core fonts-noto-color-emoji
-pipewire-audio wireplumber brightnessctl
+pipewire-audio wireplumber alsa-utils brightnessctl
 less nano curl

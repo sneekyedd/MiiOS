@@ -66,6 +66,7 @@ make -C "$REPO" build/limine >/dev/null
 
 step "Adding MiiOS files"
 cp -a "$HERE/rootfs-overlay/." "$R/"
+mkdir -p "$R/usr/share/miios" && cp "$HERE/packages.txt" "$R/usr/share/miios/packages.txt"
 install -m 755 "$HERE/shell/target/x86_64-unknown-linux-gnu/release/miios-shell" "$R/usr/local/bin/miios-shell"
 chmod 440 "$R/etc/sudoers.d/miios"
 
@@ -84,9 +85,10 @@ else
 fi
 sh "$HERE/rootfs-overlay/usr/local/bin/miios-prepare-hub" "$HUB"
 echo "$HUB_VER" > "$HUB/.miios-version"
-# Miis that come with the image (yours!). Copied into the user's ~/MiiOS/miis.
+# The Mii that comes with MiiOS (Guest C). Copied into the user's ~/MiiOS/miis;
+# you add your own from the Miis app (or just download a .glb in Firefox).
 mkdir -p "$R/etc/skel/MiiOS/miis"
-cp "$HERE"/miis/*.glb "$R/etc/skel/MiiOS/miis/" 2>/dev/null || true
+cp "$HERE"/default-miis/*.glb "$R/etc/skel/MiiOS/miis/" 2>/dev/null || true
 
 # ---------------------------------------------------------------- 4. System setup
 step "Setting up the system"
@@ -171,6 +173,7 @@ step "Packing the MiiOS update file"
 U="$B/update"
 rm -rf "$U"; mkdir -p "$U/root/usr/local/bin" "$U/root/etc/miios"
 cp -a "$HERE/rootfs-overlay/." "$U/root/"
+mkdir -p "$U/root/usr/share/miios" && cp "$HERE/packages.txt" "$U/root/usr/share/miios/packages.txt"
 rm -rf "$U/root/etc/skel"                       # never touch the user's own settings
 cp "$R/usr/local/bin/miios-shell" "$U/root/usr/local/bin/"
 cp "$R/etc/miios/version" "$U/root/etc/miios/version"

@@ -145,6 +145,9 @@ impl App for Wifi {
         }
         if self.scanning && self.nets.is_empty() {
             c.text_centered(&font::LARGE, s.w / 2, 340, "Looking for networks...", INK_SOFT);
+        } else if let Some(p) = host::wifi_problem() {
+            c.text_centered(&font::LARGE, s.w / 2, 340, &p, hex(0xE0455E));
+            c.text_centered(&font::MEDIUM, s.w / 2, 390, "Press R to try again.", INK_SOFT);
         } else if self.nets.is_empty() {
             c.text_centered(&font::LARGE, s.w / 2, 340, "No networks found. Press R to look again.", INK_SOFT);
         }

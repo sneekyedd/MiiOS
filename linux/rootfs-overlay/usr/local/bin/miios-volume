@@ -1,0 +1,17 @@
+#!/bin/sh
+# Change or read the speaker volume.  miios-volume up | down | mute | get
+# Uses PipeWire (wpctl); if that isn't running, plain ALSA (amixer).
+# Afterwards it tells the top bar to show the new level right away.
+pw() { wpctl "$@" 2>/dev/null; }
+get() {
+    v=$(pw get-volume @DEFAULT_AUDIO_SINK@ | awk '{print int($2*100+0.5)}')
+    [ -n "$v" ] || v=$(amixer -M get Master 2>/dev/null | grep -o '[0-9]*%' | head -n1 | tr -d %)
+    echo "${v:-0}"
+}
+case "$1" in
+    up)   pw set-mute @DEFAULT_AUDIO_SINK@ 0; pw set-volume -l 1.0 @DEFAULT_AUDIO_SINK@ 5%+ || amixer -q -M set Master 5%+ unmute ;;
+    down) pw set-volume @DEFAULT_AUDIO_SINK@ 5%- || amixer -q -M set Master 5%- ;;
+    mute) pw set-mute @DEFAULT_AUDIO_SINK@ toggle || amixer -q set Master toggle ;;
+    get)  get; exit 0 ;;
+esac
+pkill -USR1 -f miios-status 2>/dev/null || true

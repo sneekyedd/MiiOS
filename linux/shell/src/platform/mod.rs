@@ -1,5 +1,6 @@
 //! The Linux versions of everything the shared UI code asks the "kernel" for.
 pub mod arch;
+pub mod audio;
 pub mod fs;
 pub mod host;
 pub mod mem;

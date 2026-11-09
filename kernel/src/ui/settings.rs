@@ -14,7 +14,7 @@ use alloc::vec::Vec;
 use core::fmt::Write as _;
 
 #[derive(Clone, Copy, PartialEq, Eq)]
-enum Row { Wifi, Updates, TimeZone, Install, Restart, TurnOff }
+enum Row { Wifi, Updates, Volume, Music, Sounds, TimeZone, Install, Restart, TurnOff }
 
 /// The "install to this laptop" steps.
 enum Install { Off, Pick(usize), Confirm(usize, String), Running, Finished(bool) }
@@ -26,7 +26,7 @@ impl Settings {
 
     fn rows(&self) -> Vec<Row> {
         let mut v = Vec::new();
-        if crate::host::HOSTED { v.push(Row::Wifi); v.push(Row::Updates); }
+        if crate::host::HOSTED { v.push(Row::Wifi); v.push(Row::Updates); v.push(Row::Volume); v.push(Row::Music); v.push(Row::Sounds); }
         v.push(Row::TimeZone);
         if crate::host::live_session() { v.push(Row::Install); }
         v.push(Row::Restart);
@@ -34,9 +34,9 @@ impl Settings {
         v
     }
     fn x(&self) -> i32 { (self.w - 1000) / 2 }
-    fn row(&self, i: usize) -> Rect { Rect::new(self.x(), 270 + i as i32 * 116, 1000, 96) }
-    fn minus(&self, i: usize) -> Rect { let r = self.row(i); Rect::new(r.right() - 220, r.y + 18, 60, 60) }
-    fn plus(&self, i: usize) -> Rect { let r = self.row(i); Rect::new(r.right() - 90, r.y + 18, 60, 60) }
+    fn row(&self, i: usize) -> Rect { Rect::new(self.x(), 240 + i as i32 * 78, 1000, 66) }
+    fn minus(&self, i: usize) -> Rect { let r = self.row(i); Rect::new(r.right() - 200, r.y + 7, 52, 52) }
+    fn plus(&self, i: usize) -> Rect { let r = self.row(i); Rect::new(r.right() - 80, r.y + 7, 52, 52) }
     fn all(&self) -> Rect { Rect::new(0, 110, self.w, self.h - 110) }
 
     fn change_tz(&mut self, s: &mut Shared, by: i32) {
@@ -51,7 +51,9 @@ impl Settings {
             Row::Install => { self.targets = crate::host::install_targets(); self.install = Install::Pick(0); }
             Row::Restart => { let _ = super::save_profile(s); crate::arch::power::restart(); }
             Row::TurnOff => { let _ = super::save_profile(s); crate::arch::power::power_off(); }
-            Row::TimeZone => {}
+            Row::Music => crate::host::set_music(!crate::host::music_on()),
+            Row::Sounds => crate::host::set_sounds(!crate::host::sounds_on()),
+            Row::TimeZone | Row::Volume => {}
         }
         Action::None
     }
@@ -140,6 +142,8 @@ impl App for Settings {
                 Key::Down => { if self.sel + 1 < rows.len() { self.sel += 1; } }
                 Key::Left if rows[self.sel] == Row::TimeZone => self.change_tz(s, -30),
                 Key::Right if rows[self.sel] == Row::TimeZone => self.change_tz(s, 30),
+                Key::Left if rows[self.sel] == Row::Volume => crate::host::change_volume(-5),
+                Key::Right if rows[self.sel] == Row::Volume => crate::host::change_volume(5),
                 Key::Enter => return self.activate(rows[self.sel], s),
                 _ => {}
             },
@@ -153,6 +157,9 @@ impl App for Settings {
                     if r == Row::TimeZone {
                         if self.minus(i).contains(x, y) { self.change_tz(s, -30); }
                         if self.plus(i).contains(x, y) { self.change_tz(s, 30); }
+                    } else if r == Row::Volume {
+                        if self.minus(i).contains(x, y) { crate::host::change_volume(-5); }
+                        if self.plus(i).contains(x, y) { crate::host::change_volume(5); }
                     } else if self.row(i).contains(x, y) { return self.activate(r, s); }
                 }
             }
@@ -193,22 +200,33 @@ impl App for Settings {
             let (label, hint) = match row {
                 Row::Wifi => ("Wi-Fi", String::from(crate::host::wifi_current().as_deref().unwrap_or("not connected"))),
                 Row::Updates => ("Updates", self.updates_hint()),
+                Row::Volume => ("Volume", String::new()),
+                Row::Music => ("Music on the home screen", String::from(if crate::host::music_on() { "on (Enter to turn off)" } else { "off (Enter to turn on)" })),
+                Row::Sounds => ("Sound effects", String::from(if crate::host::sounds_on() { "on (Enter to turn off)" } else { "off (Enter to turn on)" })),
                 Row::TimeZone => ("Time zone", String::new()),
                 Row::Install => ("Install MiiOS on this laptop", String::from("from this USB stick")),
                 Row::Restart => ("Restart", String::from("saves everything first")),
                 Row::TurnOff => ("Turn off", String::from("saves everything first")),
             };
-            c.text(&font::LARGE, r.x + 40, r.y + 32, label, INK);
-            if row == Row::TimeZone {
+            c.text(&font::LARGE, r.x + 40, r.y + 17, label, INK);
+            if row == Row::Volume {
+                let v = crate::host::volume().unwrap_or(0) as i32;
+                let bar = Rect::new(r.right() - 560, r.y + 26, 330, 14);
+                c.fill_round_rect(bar, 7, hex(0xE6EAF2));
+                c.fill_round_rect(Rect::new(bar.x, bar.y, (bar.w * v / 100).max(14), bar.h), 7, ACCENT);
+                c.text(&font::MEDIUM, bar.x - 70, r.y + 21, &alloc::format!("{}%", v), INK_SOFT);
+                widgets::button(c, self.minus(i), "-", false);
+                widgets::button(c, self.plus(i), "+", false);
+            } else if row == Row::TimeZone {
                 t.clear();
                 let m = s.tz_minutes.abs();
                 let _ = write!(t, "UTC{}{:02}:{:02}", if s.tz_minutes < 0 { '-' } else { '+' }, m / 60, m % 60);
-                c.text(&font::LARGE, r.right() - 470, r.y + 32, t.as_str(), INK_SOFT);
+                c.text(&font::LARGE, r.right() - 470, r.y + 17, t.as_str(), INK_SOFT);
                 widgets::button(c, self.minus(i), "-", false);
                 widgets::button(c, self.plus(i), "+", false);
             } else {
                 let w = font::MEDIUM.text_width(&hint) as i32;
-                c.text(&font::MEDIUM, r.right() - w - 40, r.y + 38, &hint, INK_SOFT);
+                c.text(&font::MEDIUM, r.right() - w - 40, r.y + 21, &hint, INK_SOFT);
             }
         }
         let mut info = FmtBuf::<128>::new();

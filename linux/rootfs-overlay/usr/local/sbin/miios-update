@@ -33,6 +33,13 @@ github() { # GitHub API request (a token in /etc/miios/github-token lets it read
     curl -fsSL --max-time 60 ${tok:+-H "Authorization: Bearer $tok"} "$@"
 }
 
+missing_packages() {
+    [ -f /usr/share/miios/packages.txt ] || return 0
+    for p in $(grep -v '^#' /usr/share/miios/packages.txt); do
+        dpkg-query -W -f='${Status}' "$p" 2>/dev/null | grep -q "ok installed" || printf '%s ' "$p"
+    done
+}
+
 check() {
     say "Looking for updates"
     if ! apt-get update -qq 2>"$STATE/apt-error"; then
@@ -40,6 +47,9 @@ check() {
         echo "error" > "$STATE/status"; return 1
     fi
     SYSTEM=$(apt-get -s dist-upgrade 2>/dev/null | grep -c '^Inst ' || true)
+    # Programs a newer MiiOS needs that aren't installed yet (e.g. a missing Wi-Fi helper).
+    MISSING=$(missing_packages)
+    [ -n "$MISSING" ] && SYSTEM=$(( SYSTEM + $(echo "$MISSING" | wc -w) ))
     NEW=""; ASSET=""; REACHED=0
     if REL=$(github -H "Accept: application/vnd.github+json" "https://api.github.com/repos/$REPO/releases/latest" 2>/dev/null); then
         REACHED=1
@@ -75,6 +85,12 @@ install() {
         fi
         apt-get -y -q autoremove >/dev/null 2>&1; apt-get clean
     fi
+    MISSING=$(missing_packages)
+    if [ -n "$MISSING" ]; then
+        say "Installing new parts MiiOS needs: $MISSING"
+        apt-get -y -q --no-install-recommends install $MISSING >>"$STATE/apt.log" 2>&1 || say "Couldn't install: $MISSING"
+        apt-get clean
+    fi
     if [ -n "${miios_new:-}" ]; then
         say "Downloading MiiOS build $miios_new"
         tmp=$(mktemp -d)
@@ -91,6 +107,8 @@ install() {
         cp -a "$tmp/x/root/." /
         chmod 440 /etc/sudoers.d/miios
         systemctl daemon-reload
+        MISSING=$(missing_packages)
+        [ -n "$MISSING" ] && { say "Installing new parts MiiOS needs"; apt-get -y -q --no-install-recommends install $MISSING >>"$STATE/apt.log" 2>&1; apt-get clean; }
         rm -rf "$tmp"
         touch /run/miios-restart-needed
     fi

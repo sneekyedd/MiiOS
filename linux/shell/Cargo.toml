@@ -8,10 +8,12 @@ description = "The MiiOS home screen for the Linux edition (same UI code as the 
 [workspace]
 
 [dependencies]
-# A tiny library that opens a window and gives us a pixel buffer + keyboard/mouse.
-minifb = "0.28"
+# Talks to the Wayland display directly, so we can send only the changed parts of the screen.
+smithay-client-toolkit = "0.19"
 # Reads the PNG icons of your web apps.
 png = "0.17"
+# Decodes the Ogg Vorbis music (pure Rust).
+lewton = "0.10"
 # Reads 3D models in glTF / .glb format (your Miis).
 gltf = { version = "1", default-features = false, features = ["utils", "names", "extras"] }
 

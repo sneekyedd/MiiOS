@@ -63,20 +63,36 @@ pub struct Model {
     mats: Vec<Mat>,
     texs: Vec<Tex>,
     bone: HashMap<String, usize>,
+    /// For each node: the dials that turn it (axis, dial).
+    dials: Vec<Vec<([f32; 3], usize)>>,
     min: V3,
     max: V3,
 }
 
-/// How to pose the Mii for one picture.
+/// How to pose the Mii for one picture: the shared joint "dials"
+/// (`crate::host::MiiPose`) plus a hook for testing single bones.
 #[derive(Clone, Copy, PartialEq, Debug, Default)]
 pub struct Pose {
-    /// Turn around the vertical axis, in 1/256 turns (0 = facing you).
-    pub yaw: i32,
-    /// Walking: phase of the step cycle in 1/256 (None = standing).
-    pub walk: Option<i32>,
-    /// Waving: phase in 1/256 (None = arms down).
-    pub wave: Option<i32>,
+    pub test: Option<(&'static str, usize, f32)>,
+    pub mii: crate::host::MiiPose,
 }
+
+/// Which bone, around which of its own axes, with which sign, each dial turns.
+/// Found by rendering every bone around every axis and looking (see README).
+const DIALS: [(&str, [f32; 3], usize); 18] = {
+    use crate::host::j::*;
+    // Mii arm bones are turned about 45 degrees from the body, so "forward"
+    // and "out to the side" are each a mix of two of the bone's own axes.
+    const H: f32 = std::f32::consts::FRAC_1_SQRT_2;
+    [
+        ("Spine_2", [0.0, -1.0, 0.0], SPINE_BEND), ("Spine_2", [1.0, 0.0, 0.0], SPINE_TWIST), ("Spine_2", [0.0, 0.0, 1.0], SPINE_TILT),
+        ("Head", [0.0, -1.0, 0.0], HEAD_NOD), ("Head", [1.0, 0.0, 0.0], HEAD_TURN), ("Head", [0.0, 0.0, 1.0], HEAD_TILT),
+        ("Arm_1_L", [0.0, -H, H], ARM_L_SWING), ("Arm_1_L", [0.0, H, H], ARM_L_RAISE), ("Arm_2_L", [0.0, -H, H], ELBOW_L),
+        ("Arm_1_R", [0.0, H, H], ARM_R_SWING), ("Arm_1_R", [0.0, -H, H], ARM_R_RAISE), ("Arm_2_R", [0.0, H, H], ELBOW_R),
+        ("Leg_1_L", [0.0, 1.0, 0.0], LEG_L_SWING), ("Leg_2_L", [0.0, -1.0, 0.0], KNEE_L), ("Leg_1_R", [0.0, -1.0, 0.0], LEG_R_SWING), ("Leg_2_R", [0.0, 1.0, 0.0], KNEE_R),
+        ("Leg_1_L", [0.0, 0.0, -1.0], LEG_L_OUT), ("Leg_1_R", [0.0, 0.0, -1.0], LEG_R_OUT),
+    ]
+};
 
 fn decode_png(bytes: &[u8]) -> Option<Tex> {
     let mut d = png::Decoder::new(std::io::Cursor::new(bytes));
@@ -151,8 +167,10 @@ impl Model {
             }).collect()).unwrap_or_else(|| vec![trs([0.0; 3], [0.0, 0.0, 0.0, 1.0], [1.0; 3]); joints.len()]);
         }
         if mats.is_empty() { return Err("model has no materials".into()); }
-        let bone = nodes.iter().enumerate().map(|(i, n)| (n.name.clone(), i)).collect();
-        let mut m = Model { name, creator, nodes, prims, joints, ibm, mats, texs, bone, min: [0.0; 3], max: [0.0; 3] };
+        let bone: std::collections::HashMap<String, usize> = nodes.iter().enumerate().map(|(i, n)| (n.name.clone(), i)).collect();
+        let mut dials = vec![Vec::new(); nodes.len()];
+        for (bname, axis, dial) in DIALS { if let Some(&n) = bone.get(bname) { dials[n].push((axis, dial)); } }
+        let mut m = Model { name, creator, nodes, prims, joints, ibm, mats, texs, bone, dials, min: [0.0; 3], max: [0.0; 3] };
         // Size of the Mii standing still (used to fit it into its picture).
         let (verts, _) = m.posed(&Pose::default());
         let (mut lo, mut hi) = ([f32::MAX; 3], [f32::MIN; 3]);
@@ -164,35 +182,19 @@ impl Model {
     /// Height in the model's own units (for "taller Miis look taller").
     pub fn height(&self) -> f32 { self.max[1] - self.min[1] }
 
-    /// Extra bone rotations for the current pose.
+    /// Extra bone rotation for this pose: the product of every dial that turns this bone.
     fn bend(&self, pose: &Pose, node: usize) -> Option<Q> {
-        let name = self.nodes[node].name.as_str();
-        // Bones point along their own X axis. For legs, forward/back is a turn
-        // around local Y; for arms (which point sideways), around local Z.
-        let z = [0.0, 0.0, 1.0];
-        let y = [0.0, 1.0, 0.0];
-        if let Some(ph) = pose.walk {
-            let a = (ph as f32 / 256.0) * std::f32::consts::TAU;
-            let s = a.sin();
-            match name {
-                "Leg_1_L" => return Some(qaxis(y, 0.45 * s)),
-                "Leg_1_R" => return Some(qaxis(y, 0.45 * s)),
-                "Leg_2_L" => return Some(qaxis(y, -0.5 * (a + 0.8).sin().max(0.0))),
-                "Leg_2_R" => return Some(qaxis(y, 0.5 * (-(a + 0.8).sin()).max(0.0))),
-                "Arm_1_L" if pose.wave.is_none() => return Some(qaxis(z, 0.35 * s)),
-                "Arm_1_R" => return Some(qaxis(z, 0.35 * s)),
-                _ => {}
-            }
+        if let Some((b, ax, ang)) = pose.test {
+            if b == self.nodes[node].name { let mut a = [0.0; 3]; a[ax] = 1.0; return Some(qaxis(a, ang)); }
         }
-        if let Some(ph) = pose.wave {
-            let a = (ph as f32 / 256.0) * std::f32::consts::TAU;
-            match name {
-                "Arm_1_L" => return Some(qaxis(z, 1.9)),                       // lift the arm up high
-                "Arm_2_L" => return Some(qaxis(z, 0.35 + 0.45 * (a * 3.0).sin())), // and wave the forearm
-                _ => {}
-            }
+        let mut q: Option<Q> = None;
+        for &(axis, dial) in &self.dials[node] {
+            let v = pose.mii.j[dial];
+            if v == 0 { continue; }
+            let r = qaxis(axis, v as f32 / 256.0 * std::f32::consts::TAU);
+            q = Some(match q { Some(p) => qmul(p, r), None => r });
         }
-        None
+        q
     }
 
     /// World matrix of every node for this pose.
@@ -250,21 +252,36 @@ impl Model {
         let t0 = std::time::Instant::now();
         let (verts, nrms) = self.posed(pose);
         let t_pose = t0.elapsed();
-        let yaw = pose.yaw as f32 / 256.0 * std::f32::consts::TAU;
+        let m = &pose.mii;
+        let yaw = m.yaw as f32 / 256.0 * std::f32::consts::TAU;
         let (sy, cy) = yaw.sin_cos();
         let pitch: f32 = 0.12; // look slightly down on the Mii
         let (sp, cp) = pitch.sin_cos();
         let center = [(self.min[0] + self.max[0]) * 0.5, self.min[1], (self.min[2] + self.max[2]) * 0.5];
+        // Whole-body flip (around the side axis) and roll (around the front axis),
+        // pivoting at the middle of the body; then squash & stretch from the feet.
+        let (spit, cpit) = (m.pitch as f32 / 256.0 * std::f32::consts::TAU).sin_cos();
+        let (srol, crol) = (m.roll as f32 / 256.0 * std::f32::consts::TAU).sin_cos();
+        let mid = self.min[1] + self.height() * 0.5;
+        let sq = (m.squash.max(64) as f32) / 256.0;
+        let sqx = 1.0 / sq.sqrt();
+        let body = |p: V3, is_normal: bool| -> V3 {
+            let (x, y, z) = if is_normal { (p[0], p[1], p[2]) } else { (p[0] - center[0], p[1] - mid, p[2] - center[2]) };
+            let (y, z) = (y * cpit - z * spit, y * spit + z * cpit);
+            let (x, y) = (x * crol - y * srol, x * srol + y * crol);
+            if is_normal { [x, y, z] } else { [x * sqx + center[0], (y + mid - self.min[1]) * sq + self.min[1], z * sqx + center[2]] }
+        };
         let scale = ss_h as f32 * fill / self.height().max(1e-3);
         let light = norm([-0.35, 0.55, 0.75]);
         // model space -> picture space (x right, y down, z towards the viewer)
         let project = |p: V3| -> V3 {
+            let p = body(p, false);
             let (x, y, z) = (p[0] - center[0], p[1] - center[1], p[2] - center[2]);
             let (x, z) = (x * cy + z * sy, -x * sy + z * cy);
             let (y, z) = (y * cp - z * sp, y * sp + z * cp);
             [ss_w as f32 * 0.5 + x * scale, ss_h as f32 * 0.97 - y * scale, z * scale]
         };
-        let rot = |n: V3| -> V3 { let (x, z) = (n[0] * cy + n[2] * sy, -n[0] * sy + n[2] * cy); [x, n[1] * cp - z * sp, n[1] * sp + z * cp] };
+        let rot = |n: V3| -> V3 { let n = body(n, true); let (x, z) = (n[0] * cy + n[2] * sy, -n[0] * sy + n[2] * cy); [x, n[1] * cp - z * sp, n[1] * sp + z * cp] };
 
         let mut color = vec![[0f32; 4]; ss_w * ss_h];
         let mut depth = vec![f32::MIN; ss_w * ss_h];

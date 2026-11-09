@@ -66,8 +66,33 @@ fn refresh_current() {
     *CURRENT.lock().unwrap() = cur.filter(|s| !s.is_empty());
 }
 
+static WIFI_PROBLEM: Mutex<Option<String>> = Mutex::new(None);
+
+/// Why there might be no networks: no card, Wi-Fi switched off, ... (None = fine).
+pub fn wifi_problem() -> Option<String> { WIFI_PROBLEM.lock().unwrap().clone() }
+
+/// Check the Wi-Fi card is there and switched on (turning it on if needed).
+fn wifi_ready() -> Result<(), String> {
+    let devs = nmcli(&["-t", "-f", "TYPE,STATE", "dev"]).map_err(|e| format!("NetworkManager problem: {e}"))?;
+    if !devs.lines().any(|l| l.starts_with("wifi:")) {
+        let rf = Command::new("rfkill").arg("list").arg("wifi").output().map(|o| String::from_utf8_lossy(&o.stdout).into_owned()).unwrap_or_default();
+        if rf.contains("Hard blocked: yes") { return Err("Wi-Fi is switched off by the laptop's hardware switch or Fn key.".into()); }
+        return Err("No Wi-Fi card found (the driver may be missing). Try a cable for now.".into());
+    }
+    if nmcli(&["radio", "wifi"]).map(|s| s.trim() == "disabled").unwrap_or(false) {
+        nmcli(&["radio", "wifi", "on"]).map_err(|e| format!("Couldn't turn Wi-Fi on: {e}"))?;
+        std::thread::sleep(std::time::Duration::from_secs(3));
+    }
+    if devs.lines().any(|l| l == "wifi:unavailable") {
+        return Err("Wi-Fi isn't ready (the Wi-Fi helper may be missing; Settings > Updates installs it).".into());
+    }
+    Ok(())
+}
+
 pub fn wifi_scan_start() {
     std::thread::spawn(|| {
+        let ready = wifi_ready();
+        *WIFI_PROBLEM.lock().unwrap() = ready.err();
         let out = nmcli(&["-t", "-f", "IN-USE,SSID,SIGNAL,SECURITY", "dev", "wifi", "list", "--rescan", "yes"]).unwrap_or_default();
         let mut nets: Vec<Network> = Vec::new();
         for f in out.lines().map(split_terse) {
@@ -212,9 +237,48 @@ pub fn app_icon(name: &str) -> Option<&'static Image> {
 
 // ---------------------------------------------------------------- Your Miis
 
-/// How a Mii is posed. Angles/phases are in 1/256 of a turn/cycle.
-#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
-pub struct MiiPose { pub yaw: i32, pub walk: Option<i32>, pub wave: Option<i32> }
+/// How many joint "dials" a Mii pose has (see `j`).
+pub const NJ: usize = 18;
+
+/// Names for the joint dials. Values are angles in 1/256 of a full turn
+/// (64 = a right angle), positive = the natural direction named here.
+pub mod j {
+    pub const SPINE_BEND: usize = 0;   // lean forward
+    pub const SPINE_TWIST: usize = 1;  // turn the upper body to its left
+    pub const SPINE_TILT: usize = 2;   // lean to its right
+    pub const HEAD_NOD: usize = 3;     // look down
+    pub const HEAD_TURN: usize = 4;    // look to its left
+    pub const HEAD_TILT: usize = 5;    // tilt to its right
+    pub const ARM_L_SWING: usize = 6;  // left arm forward (and up, at large angles)
+    pub const ARM_L_RAISE: usize = 7;  // left arm out to the side
+    pub const ELBOW_L: usize = 8;
+    pub const ARM_R_SWING: usize = 9;
+    pub const ARM_R_RAISE: usize = 10;
+    pub const ELBOW_R: usize = 11;
+    pub const LEG_L_SWING: usize = 12; // left leg forward
+    pub const KNEE_L: usize = 13;      // bend the left knee
+    pub const LEG_R_SWING: usize = 14;
+    pub const KNEE_R: usize = 15;
+    pub const LEG_L_OUT: usize = 16;   // left leg out to the side
+    pub const LEG_R_OUT: usize = 17;
+}
+
+/// How a Mii is posed. Angles are in 1/256 of a full turn.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
+pub struct MiiPose {
+    /// Facing: 0 = towards you, 64 = to the right, 128 = away, 192 = to the left.
+    pub yaw: i32,
+    /// Whole-body flip forwards (for somersaults) and roll sideways (cartwheels).
+    pub pitch: i32,
+    pub roll: i32,
+    /// Squash and stretch: 256 = normal, 300 = tall and thin, 200 = short and wide.
+    pub squash: i32,
+    pub j: [i8; NJ],
+}
+
+impl Default for MiiPose {
+    fn default() -> MiiPose { MiiPose { yaw: 0, pitch: 0, roll: 0, squash: 256, j: [0; NJ] } }
+}
 
 pub fn miis() -> Vec<String> {
     static FIRST: std::sync::Once = std::sync::Once::new();
@@ -222,12 +286,15 @@ pub fn miis() -> Vec<String> {
     super::miis::names()
 }
 pub fn miis_rescan() -> bool { super::miis::rescan() }
+pub fn miis_rendering() -> bool { super::miis::rendering() }
 pub fn mii_draw(c: &mut crate::gfx::Canvas, i: usize, pose: MiiPose, dst: crate::gfx::Rect) { super::miis::draw(c, i, pose, dst) }
 pub fn mii_me() -> Option<usize> { super::miis::me() }
 pub fn mii_set_me(i: usize) { super::miis::set_me(i) }
 pub fn mii_remove(i: usize) { super::miis::remove(i) }
 pub fn mii_import_start() { super::miis::import_start() }
 pub fn mii_import_result() -> Option<String> { super::miis::import_result() }
+pub fn mii_files() -> Vec<(String, String)> { super::miis::files() }
+pub fn mii_add_file(path: &str) -> Result<String, String> { super::miis::add_file(path) }
 
 // ---------------------------------------------------------------- Updates
 
@@ -275,3 +342,31 @@ pub fn auto_updates() -> bool { std::fs::read_to_string("/etc/miios/auto-updates
 pub fn set_auto_updates(on: bool) {
     let _ = Command::new("sudo").args(["-n", "/usr/local/sbin/miios-update", "--set-auto", if on { "on" } else { "off" }]).status();
 }
+
+/// Little sound effects (made up from tones by the Linux edition; silent on bare metal).
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum Sfx { Hover, Type, Open, Back, Jump, Land, Chirp, Pop, Sparkle, Click, Whoosh, Cheer, Step, Snore }
+pub fn sound(s: Sfx, pitch: i32) { super::audio::play(s, pitch as f32 / 256.0) }
+pub fn music_on() -> bool { super::audio::music_on() }
+pub fn set_music(on: bool) { super::audio::set_music(on) }
+pub fn sounds_on() -> bool { super::audio::sounds_on() }
+pub fn set_sounds(on: bool) { super::audio::set_sounds(on) }
+
+static VOLUME: Mutex<(Option<u8>, Option<std::time::Instant>)> = Mutex::new((None, None));
+/// System volume (asks the `miios-volume` helper, at most every 2 seconds).
+pub fn volume() -> Option<u8> {
+    let mut g = VOLUME.lock().unwrap();
+    if g.1.map_or(true, |t| t.elapsed().as_secs() >= 2) {
+        g.0 = Command::new("miios-volume").arg("get").output().ok()
+            .and_then(|o| String::from_utf8_lossy(&o.stdout).trim().parse().ok());
+        g.1 = Some(std::time::Instant::now());
+    }
+    g.0
+}
+pub fn change_volume(delta: i32) {
+    let arg = if delta >= 0 { "up" } else { "down" };
+    let _ = Command::new("miios-volume").arg(arg).status();
+    VOLUME.lock().unwrap().1 = None;
+}
+
+pub fn presented(rects: &[crate::gfx::Rect]) { super::window::damaged(rects) }

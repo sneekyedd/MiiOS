@@ -1,9 +1,14 @@
-#!/bin/sh
-# Text on the right of the top bar: Wi-Fi, battery, time. Updated every 10 s.
+#!/bin/bash
+# Text on the right of the top bar: Wi-Fi, volume, battery, time.
+# Updates every 10 s, or at once when miios-volume sends it a signal.
+trap 'kill $SLEEP 2>/dev/null' USR1
 while true; do
     wifi=$(nmcli -t -f ACTIVE,SSID dev wifi 2>/dev/null | sed -n 's/^yes://p' | head -n1)
+    vol=$(miios-volume get)
+    muted=$(wpctl get-volume @DEFAULT_AUDIO_SINK@ 2>/dev/null | grep -q MUTED && echo " (muted)")
     bat=""
     for b in /sys/class/power_supply/BAT*; do [ -r "$b/capacity" ] && bat="Battery $(cat "$b/capacity")%"; done
-    echo "${wifi:+Wi-Fi: $wifi    }${bat:+$bat    }$(date +%H:%M)  "
-    sleep 10
+    echo "${wifi:+Wi-Fi: $wifi    }Volume ${vol}%${muted}    ${bat:+$bat    }$(date +%H:%M)  "
+    sleep 10 & SLEEP=$!
+    wait $SLEEP
 done

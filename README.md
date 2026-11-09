@@ -681,7 +681,10 @@ underneath to do the heavy lifting.
    (`kernel/src/ui/*`, `kernel/src/gfx/*`) using `#[path = ...]`. Those files only ever ask the
    "platform" for a few things: the time, files, memory stats, power off, input. The kernel answers
    with its own drivers; `linux/shell/src/platform/` answers with Linux:
-   - `window.rs`: a window (via the small `minifb` library) plus keyboard/mouse;
+   - `window.rs`: a Wayland window (via `smithay-client-toolkit`) plus keyboard/mouse. It only
+     sends the screen the rectangles that changed (*damage*), and waits for the screen's "ready
+     for the next frame" signal, so animations are smooth and an idle screen costs nothing;
+   - `audio.rs`: a small sound mixer (music + sound effects) that plays through `aplay`;
    - `fs.rs`: your files in `~/MiiOS`;
    - `host.rs`: Wi-Fi, battery, launching apps and the installer.
 
@@ -695,11 +698,9 @@ underneath to do the heavy lifting.
 
 ### Your Miis, in 3D
 
-- **Files.** Mii models (`.glb`, exported from Mii Creator) live in `~/MiiOS/miis/`. None are
-  included in this public repository; bring your own (see *Adding Miis* below). Until you do, the
-  home screen shows the drawn 2D pals.
-- **A 3D renderer written for MiiOS** (`linux/shell/src/platform/mii3d.rs`, ~350 lines) draws them
-  with the CPU:
+- **Files.** Mii models (`.glb`, exported from Mii Creator) live in `~/MiiOS/miis/`. MiiOS starts
+  with one: **Guest C** (`linux/default-miis/`). Add your own (see *Adding Miis* below).
+- **A 3D renderer written for MiiOS** (`linux/shell/src/platform/mii3d.rs`) draws them with the CPU:
   1. Read the glTF file: bones, meshes, textures.
   2. Pose the skeleton.
   3. *Skin* each vertex to its bones.
@@ -707,22 +708,65 @@ underneath to do the heavy lifting.
   5. Draw at 2× size and shrink, for smooth edges.
 
   Mii face textures are *mirrored half-pictures*, which the renderer handles.
-- **Walking.** The renderer rotates the hip, knee and shoulder bones along a sine wave; waving lifts
-  one arm. Each new frame takes ~8 ms. Frames are cached, so a walk cycle costs nothing after the
-  first lap.
-- **The plaza** (`kernel/src/ui/plaza.rs`). Your Miis live along the bottom of the home screen.
-  - Each one has a small state machine: stand and face you, wander somewhere, turn back, wave,
-    say hi to a Mii nearby.
-  - **Click a Mii** and it spins round, hops, waves and talks to you by name.
-  - When you come back to the home screen, they all wave.
-  - Standing Miis cost no CPU: decisions happen once a second.
-- **Which Mii is you?** By default, the Mii whose name matches who created it (your own Mii). Change
-  it in **Miis → This is me**.
-- **Adding Miis** (the **Miis** tile → **Find new Miis**):
-  - from a **USB stick**: put `.glb` files on it and plug it in (it's mounted read-only; nothing on
-    it changes), or
-  - from your **Downloads** folder: e.g. use **Make a Mii online** (opens Mii Creator in the
-    browser), export as a 3D model and save it.
+- **Poses are "dials".** A pose is 18 small numbers (`MiiPose` in `kernel/src/host.rs`): lean,
+  head nod/turn/tilt, each arm forward/out, elbows, legs, knees, plus whole-body flip/roll/squash.
+  - The renderer turns each dial into a bone rotation. Mii arm bones sit about 45° from the body,
+    so "arm forward" is a mix of two of the bone's own axes. (Getting this wrong is what made the
+    old walk look funky and sideways.)
+  - Raising an arm higher than ~125° would hide it behind the big Mii head, so "arms up" becomes a
+    happy V shape.
+- **80 moves** (`kernel/src/ui/moves.rs`), each a little formula from time to dials: walk, run,
+  tiptoe, skip, bunny hop, march, moonwalk, climb, hang from a ledge, sit and swing legs, nap,
+  wave, two-arm wave, cheer, clap, laugh, bow, salute, thumbs up, facepalm, heart hands, stomp,
+  point, think, cry, surprised, scared, shy, proud, bounce dance, disco, robot, the twist, chicken
+  dance, spin, arm-swing dance, jumping jacks, conga, slow dance, cartwheel, backflip, front flip,
+  handstand, twirl jump, somersault, look around, stretch, yawn, scratch head, tap foot, shrug, nod,
+  head tilt, sigh, shiver, sneeze, check the time, sway, bouncy idle, fall, land, crouch, jump,
+  dangle, dizzy, push, kick, throw, catch, juggle, hold a balloon, water a flower, plant something,
+  doze, hug, high five, whisper, sing, squats.
+  - The wave is now gentle: about one sway per second, and only when there's a reason (greeting
+    you, a new Mii, saying hi to each other).
+- **The plaza** (`kernel/src/ui/plaza.rs`): the whole home screen is your Miis' playground.
+  - **They go anywhere**: find their way around the tiles (a simple path-finding grid), climb up
+    the sides, sit on the edge swinging their legs, nap on top, leap from tile to tile, jump off.
+  - **38 behaviours** built from the moves: wander, climb, decorate, water flowers, dance on a
+    tile "stage", acrobatics, balloon rides, juggling, blowing bubbles, exercise, kicking a ball,
+    racing, follow-the-leader, chatting, high fives, hugs, conga lines, and more.
+  - **They decorate**: flowers, mushrooms, presents, stars, balloons... appear on the tiles and are
+    remembered (`~/MiiOS/decor.dat`).
+  - **They react to you**: they look at the pointer; hovering a tile makes a nearby Mii notice;
+    opening an app makes them cheer it on; **click a Mii** to say hi, or **drag it** to pick it
+    up and drop it somewhere (it gets a bit dizzy). Press **H** to make everyone wave.
+  - **Time of day**: they cheer every hour; very late at night (or when nobody's around for 10
+    minutes) they doze off.
+  - **Fast**: drawing a Mii takes a few milliseconds, so 3 helper threads draw them in the
+    background and recent pictures are kept. Only the parts of the screen that changed are redrawn
+    (about 1-2 ms per frame on the T470). A bug that made animations pause for up to a second
+    ("stutter") was fixed in the main loop: it woke a fraction of a millisecond early, thought
+    nothing was moving and napped.
+- **Which Mii is you?** The Mii whose name matches who created it (your own Mii); with just one
+  Mii (Guest C at first), that one. Change it in **Miis → This is me**.
+- **Adding Miis**, three ways:
+  1. **Download one**: **Miis → Make a Mii online** opens Mii Creator; export it as a 3D model
+     (`.glb`) and save it. Any new `.glb` in **Downloads** or on the **Desktop** moves in by itself
+     and walks onto the home screen ("Hi everyone! I'm new here!").
+  2. **Miis → Add a Mii file** lists the `.glb` files in Downloads, Desktop, Documents and your
+     home folder: pick one.
+  3. In the same list, **Look on a USB stick** (it's mounted read-only; nothing on it changes).
+
+### Sound, music and volume
+
+- **Music:** while the home screen is in front, Mii Hub's own music plays softly in a loop (it
+  fades out when you open another app, and comes from the preinstalled Mii Hub, so it updates
+  with it).
+- **Sound effects:** a soft note when you move between tiles (a slightly different one per
+  column), a tick when typing, pops, chirps when Miis talk, footsteps, cheers. They're made by code
+  (`audio.rs`), not sound files.
+- **Turn them off** in **Settings → Music** and **Settings → Sounds**.
+- **Volume:** the laptop's volume keys work (on the T470: F1 mute, F2 quieter, F3 louder; hold
+  Fn too if your F-keys are set the other way round), and so do
+  **Ctrl+Super+Up/Down**. Or use **Settings → Volume** (- and +). The top bar shows the volume.
+  Behind the scenes: PipeWire (sound server) and `miios-volume`.
 
 ### Mii Hub, preinstalled and self-updating
 
@@ -760,6 +804,9 @@ underneath to do the heavy lifting.
 3. MiiOS builds are downloaded from this repository's public **Releases** page; no login needed.
 
 ### Wi-Fi
+
+(Earlier builds found no networks: the Wi-Fi helper program `wpasupplicant` was missing from the
+image. It's included now, and the updater installs anything missing from the package list.)
 
 The **Wi-Fi** tile lists nearby networks (signal bars, a lock for secured ones). Pick one and type
 the password. Behind the scenes it's NetworkManager (`nmcli`), the same as on most Linux laptops;
@@ -835,6 +882,10 @@ files → user → disk image. It never mounts or touches a real disk.
 - ✅ Firefox opens on its own workspace;
 - ✅ your imported Miis walk around, turn and wave;
 - ✅ Mii renders checked against your files (textures, mirroring, walk cycle).
+- ✅ (this update, on a test desktop at 1920×1080) all 80 moves rendered and checked one by one;
+  Miis climb, sit, decorate, chat and walk in when a `.glb` lands in Downloads; Add a Mii file;
+  ~1-2 ms per frame; no leftover smudges after a minute of play; unplugging the keyboard no
+  longer crashes the home screen.
 
 **Not testable in a virtual machine:** Wi-Fi (QEMU has no Wi-Fi card), real GPU speed, Fn keys,
 battery. These need the real laptop; please report what you see.

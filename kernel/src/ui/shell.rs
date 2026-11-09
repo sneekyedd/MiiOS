@@ -81,6 +81,9 @@ impl Shell {
                     self.pointer_visible = false;
                     self.screen.damage.add(cursor::rect(self.px, self.py));
                 }
+                if matches!(key, Key::Char(_) | Key::Backspace | Key::Enter | Key::Delete | Key::Tab) && self.current != AppId::Home {
+                    crate::host::sound(crate::host::Sfx::Type, 256);
+                }
                 self.dispatch(UiEvent::Key { key, mods });
             }
             Event::Pointer { x, y, wheel, left, right, middle } => {
@@ -130,8 +133,9 @@ impl Shell {
         let action = unsafe { self.app(cur).event(&e, &mut *shared, &mut *damage) };
         match action {
             Action::None => {}
-            Action::Launch(name) => { crate::host::launch(name); }
+            Action::Launch(name) => { crate::host::sound(crate::host::Sfx::Open, 256); crate::host::launch(name); }
             Action::Open(id, from) => {
+                crate::host::sound(crate::host::Sfx::Open, 256);
                 let mut t = Tween::default();
                 t.start(14); // ~0.23 s
                 self.trans = Transition::Opening { to: id, from, t };
@@ -139,6 +143,7 @@ impl Shell {
                 self.animating = true;
             }
             Action::Back => {
+                crate::host::sound(crate::host::Sfx::Back, 256);
                 let to = self.home.lay_tile_of(cur);
                 let mut t = Tween::default();
                 t.start(12);
@@ -256,7 +261,9 @@ impl Shell {
             let mut moving = false;
             for _ in 0..due.min(4) { moving |= self.step(); }
             self.steps_done += due; // if we fell far behind, skip ahead rather than rush
-            self.animating = moving;
+            // Woke up a little before the next step was due? Then nothing changed:
+            // keep animating (otherwise we'd nap for a whole second = stutter).
+            if due > 0 { self.animating = moving; }
 
             // Once a second: clocks.
             self.shared.local_time = time::unix_now() + self.shared.tz_minutes as i64 * 60;
@@ -271,7 +278,9 @@ impl Shell {
             self.render();
 
             if self.animating {
-                task::wait_input(16);
+                // Sleep until the next 60 Hz step is due.
+                let next = self.anim_origin + (self.steps_done + 1) * 1000 / 60;
+                task::wait_input(next.saturating_sub(time::ticks_ms()).clamp(1, 17));
             } else {
                 let ms_to_next_second = 1000 - (time::uptime_us() / 1000 % 1000);
                 task::wait_input(ms_to_next_second.max(1));

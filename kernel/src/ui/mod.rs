@@ -9,6 +9,7 @@ pub mod files;
 pub mod home;
 pub mod icons;
 pub mod miis;
+pub mod moves;
 pub mod pals;
 pub mod plaza;
 pub mod settings;

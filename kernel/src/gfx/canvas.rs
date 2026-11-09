@@ -177,6 +177,27 @@ impl Canvas {
         });
     }
 
+    /// Anti-aliased filled triangle (24.8 fixed-point corners).
+    pub fn fill_triangle_fx(&mut self, p: [(Fx, Fx); 3], c: Color) {
+        let top = p[0].1.min(p[1].1).min(p[2].1);
+        let bot = p[0].1.max(p[1].1).max(p[2].1);
+        let bb = Rect::new(fx_floor(p[0].0.min(p[1].0).min(p[2].0)) - 1, fx_floor(top) - 1,
+            fx_ceil(p[0].0.max(p[1].0).max(p[2].0) - p[0].0.min(p[1].0).min(p[2].0)) + 3, fx_ceil(bot - top) + 3);
+        if !bb.overlaps(&self.clip) { return; }
+        self.fill_spans(top, bot, c, |y| {
+            // Where does this row cross the triangle's three edges?
+            let (mut lo, mut hi) = (Fx::MAX, Fx::MIN);
+            for k in 0..3 {
+                let (a, b) = (p[k], p[(k + 1) % 3]);
+                if (a.1 <= y && b.1 >= y) || (b.1 <= y && a.1 >= y) {
+                    let x = if b.1 == a.1 { a.0 } else { a.0 + ((b.0 - a.0) as i64 * (y - a.1) as i64 / (b.1 - a.1) as i64) as Fx };
+                    lo = lo.min(x); hi = hi.max(x);
+                }
+            }
+            if hi > lo { Some((lo, hi)) } else { None }
+        });
+    }
+
     pub fn fill_circle(&mut self, cx: i32, cy: i32, r: i32, c: Color) {
         self.fill_ellipse_fx(fx(cx), fx(cy), fx(r), fx(r), c);
     }

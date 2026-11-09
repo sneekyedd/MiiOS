@@ -19,6 +19,8 @@ use crate::gfx::{font, Canvas, Color, Rect};
 use crate::input::Key;
 use crate::util::FmtBuf;
 use core::fmt::Write;
+extern crate alloc;
+use alloc::vec::Vec;
 
 pub const COLS: usize = 4;
 pub const ROWS: usize = 3;
@@ -118,6 +120,8 @@ impl Home {
 
     fn select(&mut self, i: usize, d: &mut Damage) {
         if i == self.sel { return; }
+        if self.plaza_on() { self.plaza.tile_selected(self.lay.tile(i)); }
+        crate::host::sound(crate::host::Sfx::Hover, 256 + (i as i32 % 4) * 24); // a slightly different note per column
         d.add(self.lay.tile_damage(self.sel));
         d.add(self.lay.tile_damage(i));
         self.grow[self.sel].set(ONE);
@@ -128,8 +132,9 @@ impl Home {
         self.ring[2].set(fx(t.w)); self.ring[3].set(fx(t.h));
     }
 
-    fn open(&self, i: usize) -> Action {
+    fn open(&mut self, i: usize) -> Action {
         let t = tiles()[i];
+        if self.plaza_on() && (t.app.is_some() || t.launch.is_some()) { self.plaza.app_opened(self.lay.tile(i)); }
         match (t.app, t.launch) {
             (Some(a), _) => Action::Open(a, self.lay.tile(i)),
             (None, Some(l)) => { Action::Launch(l) }
@@ -168,8 +173,8 @@ impl Home {
     fn plaza_on(&self) -> bool { crate::host::HOSTED && self.plaza.active() }
     fn sync_plaza(&mut self) {
         if !crate::host::HOSTED { return; }
-        let fh = self.h - self.lay.footer_y;
-        self.plaza.sync(self.w, self.h - 10, fh * 3 / 2);
+        let tiles: Vec<Rect> = (0..N).filter(|&i| tiles()[i].app.is_some() || tiles()[i].launch.is_some()).map(|i| self.lay.tile(i)).collect();
+        self.plaza.sync(self.w, self.h, self.lay.y0 + 10, &tiles);
     }
 
     fn pal_rect(&self, i: usize) -> Rect { let (x, y, h) = self.pal_spot(i); avatar::body_rect(x, y, h) }
@@ -210,14 +215,19 @@ impl App for Home {
                     Key::Up if row > 0 => self.select(self.sel - COLS, d),
                     Key::Down if row + 1 < ROWS => self.select(self.sel + COLS, d),
                     Key::Enter | Key::Char(' ') => return self.open(self.sel),
+                    Key::Char('h') if self.plaza_on() => self.plaza.greet_all(d),
                     _ => {}
                 }
             }
-            UiEvent::PointerMove { x, y } => { if let Some(i) = self.tile_at(x, y) { self.select(i, d); } }
+            UiEvent::PointerMove { x, y } => {
+                if self.plaza_on() { self.plaza.pointer(x, y, d); }
+                if let Some(i) = self.tile_at(x, y) { self.select(i, d); }
+            }
             UiEvent::Click { x, y } => {
-                if self.plaza_on() && self.plaza.click(x, y, d) { return Action::None; } // said hi to a Mii
+                if self.plaza_on() && self.plaza.click(x, y, d) { return Action::None; } // picked up / said hi to a Mii
                 if let Some(i) = self.tile_at(x, y) { self.select(i, d); return self.open(i); }
             }
+            UiEvent::Release { x, y } => { if self.plaza_on() { self.plaza.release(x, y); } }
             _ => {}
         }
         Action::None
@@ -261,7 +271,7 @@ impl App for Home {
         if crate::host::HOSTED {
             // New Miis imported? Refresh the plaza. Then let the Miis decide what to do.
             if crate::host::miis_rescan() || !self.plaza.active() { self.sync_plaza(); d.add(self.footer_rect(s).inflate(400)); }
-            self.plaza.second(d);
+            self.plaza.second(d, s.local_time);
             if self.plaza_on() { return; }
         }
         // Pals blink now and then (a different one each time).
@@ -281,6 +291,7 @@ impl App for Home {
         let mut hello = FmtBuf::<32>::new();
         match self.plaza.me_name().filter(|_| self.plaza_on()) {
             Some(n) => { let _ = write!(hello, "Hello, {}!", n); }
+            None if self.plaza_on() => { let _ = write!(hello, "Hello!"); }
             None => { let _ = write!(hello, "Hello, {}!", s.pals.me().name()); }
         }
         let hx = c.text(&font::LARGE, lay.x0, hy, hello.as_str(), INK);

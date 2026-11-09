@@ -94,6 +94,7 @@ impl Screen {
         self.canvas.set_clip(self.canvas.bounds());
         let mut copied = 0;
         for r in &rects[..n] { copied += self.present_rect(*r); }
+        crate::host::presented(&rects[..n]); // the Linux edition tells the display what changed
         self.damage.clear();
         self.frames += 1;
         self.pixels_copied += copied;

@@ -35,7 +35,29 @@ fn render_cli(a: &[String]) {
     let bytes = std::fs::read(&a[2]).expect("read .glb");
     let m = platform::mii3d::Model::load(&bytes).expect("load .glb");
     let num = |i: usize| a.get(i).and_then(|v| v.parse::<i32>().ok());
-    let pose = platform::mii3d::Pose { yaw: num(4).unwrap_or(0), walk: num(5).filter(|&v| v >= 0), wave: num(6).filter(|&v| v >= 0) };
+    let test = std::env::var("MIIOS_TEST_BONE").ok().map(|v| {
+        let p: Vec<&str> = v.split(',').collect();
+        (&*Box::leak(p[0].to_string().into_boxed_str()), p[1].parse().unwrap(), p[2].parse::<f32>().unwrap())
+    });
+    let mut mii = crate::host::MiiPose::default();
+    mii.yaw = num(4).unwrap_or(0);
+    // MIIOS_DIALS="index=value,index=value" sets joint dials (see host::j).
+    if let Ok(d) = std::env::var("MIIOS_DIALS") {
+        for kv in d.split(',') { if let Some((k, v)) = kv.split_once('=') { if let (Ok(k), Ok(v)) = (k.parse::<usize>(), v.parse::<i8>()) { if k < mii.j.len() { mii.j[k] = v; } } } }
+    }
+    // MIIOS_MOVE="index,frame": a move from the move library at one moment.
+    if let Ok(mv) = std::env::var("MIIOS_MOVE") {
+        let p: Vec<i32> = mv.split(',').filter_map(|x| x.parse().ok()).collect();
+        let m = ui::moves::Mv::ALL[p[0] as usize];
+        let t = if p[1] < 0 { std::env::var("MIIOS_MOVE_FRAC").ok().and_then(|v| v.parse::<i32>().ok()).unwrap_or(40) * m.length() / 100 } else { p[1] };
+        let f = ui::moves::eval(m, t, m.length());
+        let yaw = mii.yaw;
+        mii = f.pose;
+        mii.yaw = (yaw + f.spin).rem_euclid(256);
+    }
+    if let Some(p) = num(5).filter(|&v| v != 0) { mii.pitch = p; }
+    if let Some(r) = num(6).filter(|&v| v != 0) { mii.roll = r; }
+    let pose = platform::mii3d::Pose { test, mii };
     let (w, h) = (a.get(7).and_then(|v| v.parse().ok()).unwrap_or(300usize), a.get(8).and_then(|v| v.parse().ok()).unwrap_or(400usize));
     let t = std::time::Instant::now();
     let px = m.render(&pose, w, h, 0.93);
@@ -58,6 +80,7 @@ fn main() {
     let started = std::time::Instant::now();
     platform::window::open(w, h);
     platform::server::start(); // serves Mii Hub + your Miis on 127.0.0.1:8765
+    platform::audio::start();  // music + sound effects
 
     let back: &'static mut [u32] = Box::leak(vec![0u32; (w * h) as usize].into_boxed_slice());
     let screen = gfx::screen::Screen::new(platform::window::front(), w as usize, back.as_mut_ptr(), w, h);
