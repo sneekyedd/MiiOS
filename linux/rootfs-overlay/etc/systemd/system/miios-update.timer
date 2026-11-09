@@ -1,0 +1,12 @@
+[Unit]
+Description=Look for MiiOS updates once a day
+
+[Timer]
+# 15 minutes after start-up, then every day; catches up if the laptop was off.
+OnBootSec=15min
+OnUnitActiveSec=1d
+RandomizedDelaySec=30min
+Persistent=true
+
+[Install]
+WantedBy=timers.target

@@ -52,3 +52,27 @@ pub fn mii_remove(_i: usize) {}
 pub fn mii_import_start() {}
 /// None = still looking, Some(message) = finished.
 pub fn mii_import_result() -> Option<String> { None }
+
+// ---- Updates (Linux edition) ----
+
+#[derive(Clone, Debug, Default)]
+pub struct UpdateInfo {
+    /// Linux/system packages waiting to be installed.
+    pub system: u32,
+    /// The MiiOS build running now ("dev" for home-made builds).
+    pub miios_have: String,
+    /// A newer MiiOS build, if there is one.
+    pub miios_new: Option<String>,
+    /// False if MiiOS's own updates couldn't be checked (offline, or a private repository).
+    pub miios_reached: bool,
+}
+pub fn updates_check_start() {}
+pub fn updates_install_start() {}
+pub fn updates_busy() -> bool { false }
+/// The updater's latest progress message.
+pub fn updates_line() -> String { String::new() }
+/// Result of the last check (None = never checked).
+pub fn updates_info() -> Option<UpdateInfo> { None }
+pub fn restart_needed() -> bool { false }
+pub fn auto_updates() -> bool { false }
+pub fn set_auto_updates(_on: bool) {}

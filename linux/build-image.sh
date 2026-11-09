@@ -95,9 +95,11 @@ printf '127.0.0.1 localhost\n127.0.1.1 miios\n::1 localhost\n' > "$R/etc/hosts"
 echo 'LANG=C.UTF-8' > "$R/etc/default/locale"
 mkdir -p "$R/etc/miios" "$R/boot/efi"
 touch "$R/etc/miios/live"   # "running from the USB stick" (the installer removes this)
+echo "${MIIOS_BUILD:-dev}" > "$R/etc/miios/version"   # which MiiOS build this is (for updates)
 in_root "id mii >/dev/null 2>&1 || useradd -m -s /bin/bash -G sudo,video,render,input,audio,netdev mii"
 in_root "echo mii:miios | chpasswd"
 in_root "cp -rn /etc/skel/. /home/mii/ && chown -R mii:mii /home/mii"
+in_root "systemctl enable miios-update.timer >/dev/null 2>&1"
 in_root "systemctl enable NetworkManager miios-grow.service >/dev/null 2>&1; systemctl disable systemd-networkd >/dev/null 2>&1 || true"
 in_root "systemctl set-default multi-user.target >/dev/null"
 : > "$R/etc/machine-id"     # each laptop makes its own ID on first boot
@@ -162,6 +164,19 @@ mformat -i "$OUT@@1M" -F -N "$ESP_SERIAL" -v MIIOS-EFI -T $(( ESP_MB * 2048 )) :
 mcopy -s -i "$OUT@@1M" "$E"/* ::/
 dd if="$B/root.img" of="$OUT" bs=1M seek=$(( 1 + ESP_MB )) conv=notrunc,sparse status=none
 rm -f "$B/root.img"
+
+# The small update package: only MiiOS's own files (no Linux, no personal files).
+# Laptops that already run MiiOS download this to update themselves.
+step "Packing the MiiOS update file"
+U="$B/update"
+rm -rf "$U"; mkdir -p "$U/root/usr/local/bin" "$U/root/etc/miios"
+cp -a "$HERE/rootfs-overlay/." "$U/root/"
+rm -rf "$U/root/etc/skel"                       # never touch the user's own settings
+cp "$R/usr/local/bin/miios-shell" "$U/root/usr/local/bin/"
+cp "$R/etc/miios/version" "$U/root/etc/miios/version"
+chmod 440 "$U/root/etc/sudoers.d/miios"
+tar -czf "$REPO/build/miios-update.tar.gz" -C "$U" root
+rm -rf "$U"
 
 if [ "${NO_XZ:-0}" != 1 ]; then
     step "Compressing for download"

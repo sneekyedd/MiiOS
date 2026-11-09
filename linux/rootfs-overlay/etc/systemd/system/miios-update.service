@@ -1,0 +1,12 @@
+[Unit]
+Description=Install MiiOS and system updates (if automatic updates are on)
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=oneshot
+ExecStart=/usr/local/sbin/miios-update --auto
+StandardOutput=append:/var/log/miios-update.log
+StandardError=append:/var/log/miios-update.log
+Nice=10
+IOSchedulingClass=idle

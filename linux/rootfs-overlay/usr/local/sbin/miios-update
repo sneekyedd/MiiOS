@@ -1,0 +1,110 @@
+#!/bin/bash
+# MiiOS updates, Windows-Update style.
+#
+#   miios-update --check        look for updates (writes the result for Settings)
+#   miios-update --install      install everything that's available
+#   miios-update --auto         what the daily timer runs: install, if automatic updates are on
+#   miios-update --set-auto on|off
+#
+# Two kinds of updates:
+#   1. The Linux underneath (security fixes, Firefox, kernel, Wi-Fi drivers),
+#      from Debian, with apt.
+#   2. MiiOS itself (home screen, apps, scripts), from the newest
+#      "MiiOS for ThinkPad" release on GitHub: a small miios-update.tar.gz
+#      with just the MiiOS files (your Miis, notes and settings are never touched).
+# (Mii Hub updates itself separately: see miios-update-apps.)
+#
+# Progress lines go to standard output; Settings shows the last one.
+set -uo pipefail
+export DEBIAN_FRONTEND=noninteractive LANG=C.UTF-8
+
+STATE=/var/lib/miios/update
+mkdir -p "$STATE"
+REPO=$(cat /etc/miios/update-repo 2>/dev/null || echo sneekyedd/MiiOS)
+HAVE=$(cat /etc/miios/version 2>/dev/null || echo dev)
+say() { echo "$*"; }
+
+# Only one update at a time.
+exec 9>/run/miios-update.lock
+flock -n 9 || { say "Another update is already running"; exit 1; }
+
+github() { # GitHub API request (a token in /etc/miios/github-token lets it read a private repository)
+    local tok; tok=$(cat /etc/miios/github-token 2>/dev/null || true)
+    curl -fsSL --max-time 60 ${tok:+-H "Authorization: Bearer $tok"} "$@"
+}
+
+check() {
+    say "Looking for updates"
+    if ! apt-get update -qq 2>"$STATE/apt-error"; then
+        say "Couldn't reach the update servers. Are you connected to Wi-Fi?"
+        echo "error" > "$STATE/status"; return 1
+    fi
+    SYSTEM=$(apt-get -s dist-upgrade 2>/dev/null | grep -c '^Inst ' || true)
+    NEW=""; ASSET=""; REACHED=0
+    if REL=$(github -H "Accept: application/vnd.github+json" "https://api.github.com/repos/$REPO/releases/latest" 2>/dev/null); then
+        REACHED=1
+        TAG=$(echo "$REL" | jq -r '.tag_name // empty')
+        NEW=${TAG#miios-linux-}
+        ASSET=$(echo "$REL" | jq -r '.assets[] | select(.name=="miios-update.tar.gz") | .url' | head -n1)
+        BROWSER=$(echo "$REL" | jq -r '.assets[] | select(.name=="miios-update.tar.gz") | .browser_download_url' | head -n1)
+    fi
+    MIIOS_AVAILABLE=0
+    if [ -n "$NEW" ] && [ -n "$ASSET" ] && [ "$NEW" != "$HAVE" ] && { [ "$HAVE" = dev ] || [ "$NEW" -gt "$HAVE" ] 2>/dev/null; }; then
+        MIIOS_AVAILABLE=1
+    fi
+    {
+        echo "system=$SYSTEM"
+        echo "miios_have=$HAVE"
+        echo "miios_new=$([ "$MIIOS_AVAILABLE" = 1 ] && echo "$NEW")"
+        echo "miios_asset=$ASSET"
+        echo "miios_url=${BROWSER:-}"
+        echo "miios_reached=$REACHED"   # 0 = GitHub unreachable, or the repository is private
+        echo "checked=$(date +%s)"
+    } > "$STATE/status"
+    total=$(( SYSTEM + MIIOS_AVAILABLE ))
+    if [ "$total" = 0 ]; then say "Everything is up to date"; else say "$total update(s) available"; fi
+}
+
+install() {
+    check || return 1
+    . <(grep -E '^[a-z_]+=' "$STATE/status")
+    if [ "$system" -gt 0 ] 2>/dev/null; then
+        say "Installing $system system updates (security fixes, Firefox, drivers)"
+        if ! apt-get -y -q -o Dpkg::Options::=--force-confold -o Dpkg::Options::=--force-confdef dist-upgrade >"$STATE/apt.log" 2>&1; then
+            say "Some system updates failed (see /var/lib/miios/update/apt.log)"; return 1
+        fi
+        apt-get -y -q autoremove >/dev/null 2>&1; apt-get clean
+    fi
+    if [ -n "${miios_new:-}" ]; then
+        say "Downloading MiiOS build $miios_new"
+        tmp=$(mktemp -d)
+        tok=$(cat /etc/miios/github-token 2>/dev/null || true)
+        if [ -n "$tok" ]; then
+            github -H "Accept: application/octet-stream" "$miios_asset" -o "$tmp/u.tgz"
+        else
+            curl -fsSL --max-time 600 "$miios_url" -o "$tmp/u.tgz"
+        fi || { say "Couldn't download the MiiOS update"; rm -rf "$tmp"; return 1; }
+        say "Installing MiiOS build $miios_new"
+        mkdir "$tmp/x" && tar -xzf "$tmp/u.tgz" -C "$tmp/x" && [ -f "$tmp/x/root/etc/miios/version" ] \
+            || { say "The MiiOS update file is damaged"; rm -rf "$tmp"; return 1; }
+        # Only MiiOS's own files are replaced; your files in /home are never in the bundle.
+        cp -a "$tmp/x/root/." /
+        chmod 440 /etc/sudoers.d/miios
+        systemctl daemon-reload
+        rm -rf "$tmp"
+        touch /run/miios-restart-needed
+    fi
+    /usr/local/sbin/miios-update-boot || true          # new Linux kernel? put it on the boot partition
+    [ -f /var/run/reboot-required ] && touch /run/miios-restart-needed
+    check >/dev/null
+    if [ -f /run/miios-restart-needed ]; then say "Updates installed. Restart to finish."; else say "Updates installed"; fi
+}
+
+case "${1:-}" in
+    --check)   check ;;
+    --install) install ;;
+    --auto)    [ "$(cat /etc/miios/auto-updates 2>/dev/null || echo on)" = on ] && install ;;
+    --set-auto)
+        case "${2:-}" in on|off) echo "$2" > /etc/miios/auto-updates; say "Automatic updates: $2" ;; *) exit 2 ;; esac ;;
+    *) echo "usage: miios-update --check | --install | --auto | --set-auto on|off"; exit 2 ;;
+esac

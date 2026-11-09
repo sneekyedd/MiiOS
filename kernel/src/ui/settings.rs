@@ -14,19 +14,19 @@ use alloc::vec::Vec;
 use core::fmt::Write as _;
 
 #[derive(Clone, Copy, PartialEq, Eq)]
-enum Row { Wifi, TimeZone, Install, Restart, TurnOff }
+enum Row { Wifi, Updates, TimeZone, Install, Restart, TurnOff }
 
 /// The "install to this laptop" steps.
 enum Install { Off, Pick(usize), Confirm(usize, String), Running, Finished(bool) }
 
-pub struct Settings { sel: usize, hover_back: bool, w: i32, h: i32, install: Install, targets: Vec<(String, String)> }
+pub struct Settings { sel: usize, hover_back: bool, w: i32, h: i32, install: Install, targets: Vec<(String, String)>, updates_open: bool }
 
 impl Settings {
-    pub fn new(w: i32, h: i32) -> Settings { Settings { sel: 0, hover_back: false, w, h, install: Install::Off, targets: Vec::new() } }
+    pub fn new(w: i32, h: i32) -> Settings { Settings { sel: 0, hover_back: false, w, h, install: Install::Off, targets: Vec::new(), updates_open: false } }
 
     fn rows(&self) -> Vec<Row> {
         let mut v = Vec::new();
-        if crate::host::HOSTED { v.push(Row::Wifi); }
+        if crate::host::HOSTED { v.push(Row::Wifi); v.push(Row::Updates); }
         v.push(Row::TimeZone);
         if crate::host::live_session() { v.push(Row::Install); }
         v.push(Row::Restart);
@@ -47,12 +47,46 @@ impl Settings {
     fn activate(&mut self, row: Row, s: &mut Shared) -> Action {
         match row {
             Row::Wifi => return Action::Open(AppId::Wifi, self.row(0)),
+            Row::Updates => { self.updates_open = true; if !crate::host::updates_busy() { crate::host::updates_check_start(); } }
             Row::Install => { self.targets = crate::host::install_targets(); self.install = Install::Pick(0); }
             Row::Restart => { let _ = super::save_profile(s); crate::arch::power::restart(); }
             Row::TurnOff => { let _ = super::save_profile(s); crate::arch::power::power_off(); }
             Row::TimeZone => {}
         }
         Action::None
+    }
+
+    /// Keys while the Updates screen is open.
+    fn updates_key(&mut self, key: Key, s: &mut Shared) {
+        use crate::host;
+        let busy = host::updates_busy();
+        let available = host::updates_info().map_or(false, |i| i.system > 0 || i.miios_new.is_some());
+        match key {
+            Key::Escape => self.updates_open = false,
+            Key::Char('c') if !busy => host::updates_check_start(),
+            Key::Char('a') => host::set_auto_updates(!host::auto_updates()),
+            Key::Char('r') if host::restart_needed() && !busy => { let _ = super::save_profile(s); crate::arch::power::restart(); }
+            Key::Enter if !busy => {
+                if available { host::updates_install_start() }
+                else if host::restart_needed() { let _ = super::save_profile(s); crate::arch::power::restart(); }
+                else { host::updates_check_start() }
+            }
+            _ => {}
+        }
+    }
+
+    /// Short status for the Updates row.
+    fn updates_hint(&self) -> String {
+        use crate::host;
+        if host::updates_busy() { return host::updates_line(); }
+        if host::restart_needed() { return String::from("restart to finish updating"); }
+        match host::updates_info() {
+            Some(i) => {
+                let n = i.system + i.miios_new.is_some() as u32;
+                if n == 0 { alloc::format!("up to date (MiiOS build {})", i.miios_have) } else { alloc::format!("{} update(s) available", n) }
+            }
+            None => String::from("check for updates"),
+        }
     }
 
     /// Keys while the installer is open.
@@ -93,6 +127,11 @@ impl App for Settings {
             if let UiEvent::Key { key, .. } = *e { self.install_key(key); }
             return Action::None;
         }
+        if self.updates_open {
+            if let UiEvent::Key { key, .. } = *e { self.updates_key(key, s); }
+            if let UiEvent::Click { .. } = *e { self.updates_key(Key::Enter, s); }
+            return Action::None;
+        }
         let rows = self.rows();
         match *e {
             UiEvent::Key { key, .. } => match key {
@@ -123,6 +162,7 @@ impl App for Settings {
     }
 
     fn second(&mut self, _s: &mut Shared, d: &mut Damage) {
+        if self.updates_open || crate::host::updates_busy() { d.add(self.all()); }
         if let Install::Running = self.install {
             let (_, done, ok) = crate::host::install_progress();
             if done { self.install = Install::Finished(ok); }
@@ -152,6 +192,7 @@ impl App for Settings {
             if i == self.sel { c.stroke_round_rect(r.inflate(6), 36, 5, ACCENT); }
             let (label, hint) = match row {
                 Row::Wifi => ("Wi-Fi", String::from(crate::host::wifi_current().as_deref().unwrap_or("not connected"))),
+                Row::Updates => ("Updates", self.updates_hint()),
                 Row::TimeZone => ("Time zone", String::new()),
                 Row::Install => ("Install MiiOS on this laptop", String::from("from this USB stick")),
                 Row::Restart => ("Restart", String::from("saves everything first")),
@@ -177,6 +218,50 @@ impl App for Settings {
         }
         c.text(&font::MEDIUM, self.x(), self.h - 80, info.as_str(), INK_SOFT);
         c.text(&font::SMALL, self.x(), self.h - 40, "Up/Down: choose   Left/Right: time zone   Enter: open   Esc: back", INK_SOFT);
+
+        // ---- Updates dialog ----
+        if self.updates_open {
+            use crate::host;
+            let dlg = Rect::new(s.w / 2 - 520, s.h / 2 - 250, 1040, 500);
+            c.fill_rect(Rect::new(0, 0, s.w, s.h), with_alpha(0x303858, 60));
+            c.shadow(dlg, 40, 16, 80);
+            c.fill_round_rect(dlg, 40, WHITE);
+            let cx = s.w / 2;
+            c.text_centered(&font::LARGE, cx, dlg.y + 40, "Updates", INK);
+            let info = host::updates_info();
+            let have = info.as_ref().map(|i| i.miios_have.clone()).unwrap_or_else(|| String::from("?"));
+            c.text_centered(&font::MEDIUM, cx, dlg.y + 90, &alloc::format!("You have MiiOS build {}", have), INK_SOFT);
+            let busy = host::updates_busy();
+            let (msg, col) = if busy {
+                let dots = (crate::time::uptime_us() / 400_000 % 4) as usize;
+                (alloc::format!("{}{}", host::updates_line(), ".".repeat(dots)), INK)
+            } else if host::restart_needed() {
+                (String::from("Updates installed. Restart to finish."), hex(0x2BB7A3))
+            } else {
+                match &info {
+                    Some(i) if i.system > 0 || i.miios_new.is_some() => {
+                        let mut m = String::new();
+                        if let Some(n) = &i.miios_new { m += &alloc::format!("MiiOS build {}", n); }
+                        if i.system > 0 { if !m.is_empty() { m += "  +  "; } m += &alloc::format!("{} system updates", i.system); }
+                        (alloc::format!("Available: {}", m), INK)
+                    }
+                    Some(_) => (String::from("Everything is up to date!"), hex(0x2BB7A3)),
+                    None => (host::updates_line(), INK),
+                }
+            };
+            c.text_centered(&font::LARGE, cx, dlg.y + 170, &msg, col);
+            if info.as_ref().map_or(false, |i| !i.miios_reached) && !busy {
+                c.text_centered(&font::MEDIUM, cx, dlg.y + 215, "(Couldn't check for new MiiOS builds: offline, or the repository is private.)", INK_SOFT);
+            }
+            let auto = if host::auto_updates() { "Automatic updates: ON (installs once a day; never restarts by itself)" } else { "Automatic updates: OFF" };
+            c.text_centered(&font::MEDIUM, cx, dlg.y + 260, auto, INK_SOFT);
+            let keys = if busy { "Working... you can keep using MiiOS.   Esc: close" }
+                else if host::restart_needed() { "Enter / R: restart now   C: check again   A: automatic on/off   Esc: later" }
+                else if info.as_ref().map_or(false, |i| i.system > 0 || i.miios_new.is_some()) { "Enter: install now   C: check again   A: automatic on/off   Esc: close" }
+                else { "Enter / C: check again   A: automatic on/off   Esc: close" };
+            c.text_centered(&font::MEDIUM, cx, dlg.bottom() - 70, keys, INK);
+            return;
+        }
 
         // ---- Installer dialog ----
         if matches!(self.install, Install::Off) { return; }

@@ -228,3 +228,50 @@ pub fn mii_set_me(i: usize) { super::miis::set_me(i) }
 pub fn mii_remove(i: usize) { super::miis::remove(i) }
 pub fn mii_import_start() { super::miis::import_start() }
 pub fn mii_import_result() -> Option<String> { super::miis::import_result() }
+
+// ---------------------------------------------------------------- Updates
+
+#[derive(Clone, Debug, Default)]
+pub struct UpdateInfo { pub system: u32, pub miios_have: String, pub miios_new: Option<String>, pub miios_reached: bool }
+
+static UPDATER: Mutex<Option<Child>> = Mutex::new(None);
+const UPDATE_LOG: &str = "/tmp/miios-update-ui.log";
+
+/// Run the updater (as root, via the sudo rule) in the background.
+fn run_updater(arg: &str) {
+    let mut g = UPDATER.lock().unwrap();
+    if let Some(c) = g.as_mut() { if matches!(c.try_wait(), Ok(None)) { return; } } // already running
+    let Ok(log) = std::fs::File::create(UPDATE_LOG) else { return };
+    let mut cmd = Command::new("sudo");
+    cmd.args(["-n", "/usr/local/sbin/miios-update", arg]).stdin(Stdio::null());
+    if let Ok(l2) = log.try_clone() { cmd.stdout(Stdio::from(l2)); }
+    cmd.stderr(Stdio::from(log));
+    *g = cmd.spawn().ok();
+}
+
+pub fn updates_check_start() { run_updater("--check") }
+pub fn updates_install_start() { run_updater("--install") }
+pub fn updates_busy() -> bool {
+    UPDATER.lock().unwrap().as_mut().map_or(false, |c| matches!(c.try_wait(), Ok(None)))
+}
+pub fn updates_line() -> String {
+    std::fs::read_to_string(UPDATE_LOG).unwrap_or_default().lines().rev()
+        .find(|l| !l.trim().is_empty()).unwrap_or("").trim().to_string()
+}
+pub fn updates_info() -> Option<UpdateInfo> {
+    let s = std::fs::read_to_string("/var/lib/miios/update/status").ok()?;
+    let get = |k: &str| s.lines().find_map(|l| l.strip_prefix(&format!("{k}="))).unwrap_or("").to_string();
+    if get("system").is_empty() { return None; }
+    let new = get("miios_new");
+    Some(UpdateInfo {
+        system: get("system").parse().unwrap_or(0),
+        miios_have: std::fs::read_to_string("/etc/miios/version").map(|v| v.trim().to_string()).unwrap_or_else(|_| get("miios_have")),
+        miios_new: if new.is_empty() { None } else { Some(new) },
+        miios_reached: get("miios_reached") != "0",
+    })
+}
+pub fn restart_needed() -> bool { std::path::Path::new("/run/miios-restart-needed").exists() || std::path::Path::new("/var/run/reboot-required").exists() }
+pub fn auto_updates() -> bool { std::fs::read_to_string("/etc/miios/auto-updates").map(|s| s.trim() != "off").unwrap_or(true) }
+pub fn set_auto_updates(on: bool) {
+    let _ = Command::new("sudo").args(["-n", "/usr/local/sbin/miios-update", "--set-auto", if on { "on" } else { "off" }]).status();
+}

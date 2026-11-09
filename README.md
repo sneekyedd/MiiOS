@@ -738,7 +738,37 @@ underneath to do the heavy lifting.
    flag so Mii Hub skips its random starter Miis when you have your own. If a future Mii Hub changes,
    these small additions just stop doing anything; nothing breaks.
 
-### Wi-Fi
+### Updates (like Windows Update)
+
+**Settings → Updates** shows "up to date" or "N updates available". Open it to **check** (C),
+**install** (Enter), **restart** when needed (R), or switch **automatic updates** on/off (A).
+
+1. **Automatic updates are on by default.** A timer (`miios-update.timer`) runs 15 minutes after
+   start-up and then once a day (catching up if the laptop was off), and quietly installs
+   everything. It **never restarts by itself**: Settings says *"restart to finish updating"* when
+   a restart is needed (e.g. after a new Linux kernel).
+2. **What gets updated**, all by one script (`linux/rootfs-overlay/usr/local/sbin/miios-update`):
+   - **The Linux underneath:** security fixes, Firefox, kernel, Wi-Fi drivers, from Debian with
+     `apt`. A new kernel is copied onto the boot partition automatically.
+   - **MiiOS itself:** home screen, apps, scripts. Every GitHub build publishes a small
+     `miios-update.tar.gz` (~3 MB, only MiiOS's own files) next to the big image. Each laptop knows
+     its build number (`/etc/miios/version`), downloads newer builds and copies the files in.
+     **Your files are never in the update** (notes, Miis, Wi-Fi passwords and settings live in
+     your home folder).
+   - **Mii Hub** updates itself separately (see above).
+3. **The private-repository catch.** A laptop can't download releases from a *private* GitHub
+   repository without logging in, so MiiOS-itself updates need one of:
+   - make the MiiOS repository **public**, or
+   - put a read-only GitHub token on the laptop:
+     ```bash
+     echo YOUR_TOKEN | sudo tee /etc/miios/github-token
+     ```
+     Create the token on GitHub under Settings → Developer settings → **Fine-grained token**,
+     with read-only *Contents* access to the MiiOS repository only.
+
+   The Linux and Mii Hub updates work either way. The Updates screen tells you when it couldn't
+   check for MiiOS builds.
+
 
 The **Wi-Fi** tile lists nearby networks (signal bars, a lock for secured ones). Pick one and type
 the password. Behind the scenes it's NetworkManager (`nmcli`), the same as on most Linux laptops;

@@ -37,7 +37,7 @@ jobs:
           rustup default stable
 
       - name: Build the image
-        run: sudo -E env "PATH=$PATH" ./linux/build-image.sh
+        run: sudo -E env "PATH=$PATH" MIIOS_BUILD=${{ github.run_number }} ./linux/build-image.sh
 
       - name: Publish release
         uses: softprops/action-gh-release@v2
@@ -48,6 +48,7 @@ jobs:
           files: |
             build/miios-linux.img.xz
             build/miios-linux.img.xz.sha256
+            build/miios-update.tar.gz
           body: |
             **MiiOS USB image** (Linux edition: Wi-Fi, web browser, your Miis, Mii Hub).
 
@@ -56,5 +57,8 @@ jobs:
                `xz -dc miios-linux.img.xz | sudo dd of=/dev/sdX bs=4M conv=fsync status=progress`
             3. On the ThinkPad: turn off Secure Boot (F1 at power-on), then press F12 and pick the USB stick.
             4. To install on the laptop: Settings → Install MiiOS on this laptop.
+
+            Already running MiiOS? You don't need this image: **Settings → Updates** gets this build
+            (it downloads the small `miios-update.tar.gz`).
 
             User: `mii`, password: `miios` (only needed in the Terminal for `sudo`).
