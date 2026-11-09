@@ -782,6 +782,11 @@ The installer (`linux/rootfs-overlay/usr/local/sbin/miios-install`):
 6. **Install:** Settings → Install MiiOS on this laptop → pick the drive → type ERASE → wait →
    unplug the stick → Enter.
 
+**Getting around:** every app (Web, Mii Hub, Terminal) opens on its own screen, with the slim bar
+on top. **Click "Home" in the bar** (or press ⊞) to go back to MiiOS; the app keeps running, so
+clicking its name in the bar brings it back. Mii Hub opens like an app (no browser toolbars) but
+deliberately *not* in Firefox's "kiosk" full-screen mode, which would hide the bar.
+
 **Keys:** ⊞ (Windows key) = back to the MiiOS home screen, ⊞+Q = close the app you're in,
 ⊞+W = web, ⊞+Enter = terminal. Fn+F5/F6 = brightness, the volume keys work. The top bar also has
 clickable **Home / Web / Mii Hub** buttons.
