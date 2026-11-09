@@ -695,8 +695,9 @@ underneath to do the heavy lifting.
 
 ### Your Miis, in 3D
 
-- **Files.** Mii models (`.glb`, exported from Mii Creator) live in `~/MiiOS/miis/`. Lizzi and Joe
-  come preloaded (`linux/miis/`).
+- **Files.** Mii models (`.glb`, exported from Mii Creator) live in `~/MiiOS/miis/`. None are
+  included in this public repository; bring your own (see *Adding Miis* below). Until you do, the
+  home screen shows the drawn 2D pals.
 - **A 3D renderer written for MiiOS** (`linux/shell/src/platform/mii3d.rs`, ~350 lines) draws them
   with the CPU:
   1. Read the glTF file: bones, meshes, textures.
@@ -756,19 +757,9 @@ underneath to do the heavy lifting.
      **Your files are never in the update** (notes, Miis, Wi-Fi passwords and settings live in
      your home folder).
    - **Mii Hub** updates itself separately (see above).
-3. **The private-repository catch.** A laptop can't download releases from a *private* GitHub
-   repository without logging in, so MiiOS-itself updates need one of:
-   - make the MiiOS repository **public**, or
-   - put a read-only GitHub token on the laptop:
-     ```bash
-     echo YOUR_TOKEN | sudo tee /etc/miios/github-token
-     ```
-     Create the token on GitHub under Settings → Developer settings → **Fine-grained token**,
-     with read-only *Contents* access to the MiiOS repository only.
+3. MiiOS builds are downloaded from this repository's public **Releases** page; no login needed.
 
-   The Linux and Mii Hub updates work either way. The Updates screen tells you when it couldn't
-   check for MiiOS builds.
-
+### Wi-Fi
 
 The **Wi-Fi** tile lists nearby networks (signal bars, a lock for secured ones). Pick one and type
 the password. Behind the scenes it's NetworkManager (`nmcli`), the same as on most Linux laptops;
@@ -842,7 +833,7 @@ files → user → disk image. It never mounts or touches a real disk.
 - ✅ boots from the USB stick straight into MiiOS;
 - ✅ all tiles and the top bar;
 - ✅ Firefox opens on its own workspace;
-- ✅ Joe and Lizzi walk around, turn and wave;
+- ✅ your imported Miis walk around, turn and wave;
 - ✅ Mii renders checked against your files (textures, mirroring, walk cycle).
 
 **Not testable in a virtual machine:** Wi-Fi (QEMU has no Wi-Fi card), real GPU speed, Fn keys,
@@ -864,5 +855,5 @@ battery. These need the real laptop; please report what you see.
 - Spleen font: BSD 2-clause, © Frederic Cambus (`kernel/assets/fonts/LICENSE-spleen`).
 - Limine bootloader: BSD 2-clause, downloaded at build time (not stored in this repository).
 - Linux edition: Debian packages under their own licences; Mii Hub is your own project, downloaded at build time.
-- The Mii models in `linux/miis/` are your own Miis made with Mii Creator. The Mii look comes from
-  Nintendo, so keep this repository and its releases private; don't share them publicly.
+- No Mii models are included. The Mii look comes from Nintendo, so Mii files stay on your own
+  laptop (`~/MiiOS/miis`), imported by you, and are never part of this public repository or its builds.
