@@ -14,6 +14,8 @@ static mut FRONT: Vec<u32> = Vec::new();
 static SIZE: Mutex<(usize, usize)> = Mutex::new((0, 0));
 /// Typed characters arrive through this callback (it knows Shift and the keyboard layout).
 static CHARS: Mutex<Vec<char>> = Mutex::new(Vec::new());
+/// Key presses as they happen (so even a very quick tap is never missed).
+static PRESSES: Mutex<Vec<minifb::Key>> = Mutex::new(Vec::new());
 static LAST_PTR: Mutex<(i32, i32, bool, bool, bool)> = Mutex::new((-1, -1, false, false, false));
 
 struct Chars;
@@ -22,6 +24,9 @@ impl InputCallback for Chars {
         if let Some(ch) = char::from_u32(c) {
             if (' '..='~').contains(&ch) { CHARS.lock().unwrap().push(ch); }
         }
+    }
+    fn set_key_state(&mut self, key: minifb::Key, down: bool) {
+        if down { PRESSES.lock().unwrap().push(key); }
     }
 }
 
@@ -68,7 +73,14 @@ fn pump(win: &mut Window) {
         ctrl: win.is_key_down(minifb::Key::LeftCtrl) || win.is_key_down(minifb::Key::RightCtrl),
         alt: win.is_key_down(minifb::Key::LeftAlt) || win.is_key_down(minifb::Key::RightAlt),
     };
+    // New presses come from the event callback; get_keys_pressed adds the
+    // repeats while a key is held down (skipping keys we already saw now).
+    let fresh: Vec<minifb::Key> = std::mem::take(&mut *PRESSES.lock().unwrap());
+    let mut keys = fresh.clone();
     for k in win.get_keys_pressed(KeyRepeat::Yes) {
+        if !fresh.contains(&k) && win.is_key_down(k) && !win.get_keys_pressed(KeyRepeat::No).contains(&k) { keys.push(k); }
+    }
+    for k in keys {
         if let Some(key) = special(k) { EVENTS.push(Event::Key { key, pressed: true, mods }); }
         else if mods.ctrl { if let Some(c) = letter(k) { EVENTS.push(Event::Key { key: Key::Char(c), pressed: true, mods }); } }
     }

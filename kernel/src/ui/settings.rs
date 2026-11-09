@@ -154,8 +154,8 @@ impl App for Settings {
                 Row::Wifi => ("Wi-Fi", String::from(crate::host::wifi_current().as_deref().unwrap_or("not connected"))),
                 Row::TimeZone => ("Time zone", String::new()),
                 Row::Install => ("Install MiiOS on this laptop", String::from("from this USB stick")),
-                Row::Restart => ("Restart", String::from("saves your pals first")),
-                Row::TurnOff => ("Turn off", String::from("saves your pals first")),
+                Row::Restart => ("Restart", String::from("saves everything first")),
+                Row::TurnOff => ("Turn off", String::from("saves everything first")),
             };
             c.text(&font::LARGE, r.x + 40, r.y + 32, label, INK);
             if row == Row::TimeZone {
