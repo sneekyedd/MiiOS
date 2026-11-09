@@ -1,0 +1,16 @@
+#!/bin/sh
+# Copy the current Linux kernel + initramfs onto the EFI boot partition and
+# write the boot menu entries. Runs automatically after kernel updates.
+set -e
+ESP=/boot/efi
+[ -d "$ESP/loader" ] || exit 0
+ROOT_UUID=$(findmnt -no UUID /)
+mkdir -p "$ESP/miios"
+cp -L /vmlinuz "$ESP/miios/vmlinuz.new" && mv "$ESP/miios/vmlinuz.new" "$ESP/miios/vmlinuz"
+cp -L /initrd.img "$ESP/miios/initrd.img.new" && mv "$ESP/miios/initrd.img.new" "$ESP/miios/initrd.img"
+cat > "$ESP/loader/entries/miios.conf" <<EOC
+title   MiiOS
+linux   /miios/vmlinuz
+initrd  /miios/initrd.img
+options root=UUID=$ROOT_UUID rw quiet splash loglevel=3 systemd.show_status=auto rd.udev.log_level=3 vt.global_cursor_default=0
+EOC

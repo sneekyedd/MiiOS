@@ -1,0 +1,23 @@
+[package]
+name = "miios-shell"
+version = "0.2.0"
+edition = "2024"
+description = "The MiiOS home screen for the Linux edition (same UI code as the bare-metal kernel)"
+
+# Separate from the kernel's workspace: this is a normal Linux program.
+[workspace]
+
+[dependencies]
+# A tiny library that opens a window and gives us a pixel buffer + keyboard/mouse.
+minifb = "0.28"
+# Reads the PNG icons of your web apps.
+png = "0.17"
+# Reads 3D models in glTF / .glb format (your Miis).
+gltf = { version = "1", default-features = false, features = ["utils", "names", "extras"] }
+
+[profile.release]
+opt-level = 3
+lto = "fat"
+codegen-units = 1
+panic = "abort"
+strip = true

@@ -1,0 +1,25 @@
+#!/bin/sh
+# Copy Mii model files (.glb) from any plugged-in USB stick into the user's
+# ~/MiiOS/miis folder. Sticks are mounted read-only, so nothing on them changes.
+#   miios-import-usb USER
+set -e
+U="${1:-mii}"
+DEST=$(getent passwd "$U" | cut -d: -f6)/MiiOS/miis
+mkdir -p "$DEST"
+ROOT_DISK=$(lsblk -no PKNAME "$(findmnt -no SOURCE /)" | head -n1)
+n=0
+for part in $(lsblk -lnpo NAME,TRAN,TYPE | awk '$3=="part"{print $1}'); do
+    disk=$(lsblk -no PKNAME "$part" | head -n1)
+    [ "$disk" = "$ROOT_DISK" ] && continue
+    [ "$(lsblk -dno TRAN "/dev/$disk")" = "usb" ] || continue
+    m=$(mktemp -d)
+    if mount -o ro "$part" "$m" 2>/dev/null; then
+        c=$(find "$m" -maxdepth 3 -iname '*.glb' -size -30M 2>/dev/null | wc -l)
+        find "$m" -maxdepth 3 -iname '*.glb' -size -30M -exec cp {} "$DEST/" \; 2>/dev/null || true
+        n=$((n + c))
+        umount "$m"
+    fi
+    rmdir "$m"
+done
+chown -R "$U:$U" "$DEST"
+echo "$n"

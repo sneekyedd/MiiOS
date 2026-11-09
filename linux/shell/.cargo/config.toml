@@ -1,0 +1,4 @@
+# The repository root builds the bare-metal kernel by default; this folder is
+# a regular Linux program, so build for Linux here.
+[build]
+target = "x86_64-unknown-linux-gnu"

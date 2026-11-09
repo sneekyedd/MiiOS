@@ -62,6 +62,9 @@ impl Canvas {
         }
     }
 
+    /// Blend one pixel (for code outside the canvas, e.g. 3D Mii pictures).
+    pub fn blend_pub(&mut self, x: i32, y: i32, c: Color, a: u32) { self.blend_px(x, y, c, a); }
+
     /// Horizontal run of pixels [x0, x1) on row y (already clipped by caller or not).
     #[inline(always)]
     fn hspan(&mut self, y: i32, x0: i32, x1: i32, c: Color) {
@@ -317,6 +320,36 @@ impl Canvas {
                 d as Fx - hw
             }
         });
+    }
+
+    // ------------------------------------------------------------------
+    // Pictures
+    // ------------------------------------------------------------------
+
+    /// Draw an ARGB picture scaled into `dst`. Each screen pixel averages a
+    /// 2x2 grid of picture samples, so shrinking big icons stays smooth.
+    pub fn blit_image(&mut self, img: &crate::host::Image, dst: Rect) {
+        let vis = dst.intersect(&self.clip);
+        if vis.is_empty() || img.w == 0 || img.h == 0 { return; }
+        let (iw, ih) = (img.w as i64, img.h as i64);
+        for py in vis.y..vis.bottom() {
+            for px in vis.x..vis.right() {
+                let (mut a, mut r, mut g, mut b) = (0u32, 0u32, 0u32, 0u32);
+                for sy in 0..2 {
+                    for sx in 0..2 {
+                        let fx_ = ((px - dst.x) as i64 * 4 + 1 + sx * 2) * iw / (dst.w as i64 * 4);
+                        let fy_ = ((py - dst.y) as i64 * 4 + 1 + sy * 2) * ih / (dst.h as i64 * 4);
+                        let p = img.px[(fy_.min(ih - 1) * iw + fx_.min(iw - 1)) as usize];
+                        let pa = p >> 24;
+                        a += pa;
+                        r += ((p >> 16) & 255) * pa; g += ((p >> 8) & 255) * pa; b += (p & 255) * pa;
+                    }
+                }
+                if a == 0 { continue; }
+                let col = 0xFF00_0000 | ((r / a) << 16) | ((g / a) << 8) | (b / a);
+                self.blend_px(px, py, col, a / 4 + 1);
+            }
+        }
     }
 
     // ------------------------------------------------------------------

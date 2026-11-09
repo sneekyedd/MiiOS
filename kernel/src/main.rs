@@ -12,6 +12,7 @@ mod boot;
 mod drivers;
 mod fs;
 mod gfx;
+mod host;
 mod input;
 mod mem;
 mod serial;
@@ -79,6 +80,7 @@ extern "C" fn kmain() -> ! {
         (ui::AppId::Files, alloc::boxed::Box::new(ui::files::Files::new(w, h))),
         (ui::AppId::Clock, alloc::boxed::Box::new(ui::clockapp::ClockApp::new(w, h))),
         (ui::AppId::Settings, alloc::boxed::Box::new(ui::settings::Settings::new(w, h))),
+        (ui::AppId::Wifi, alloc::boxed::Box::new(ui::wifi::Wifi::new(w, h))),
         (ui::AppId::About, alloc::boxed::Box::new(ui::about::About::new(w, h, time::uptime_us() - time::us_before_kernel()))),
     ];
     let home = ui::home::Home::new(w, h);

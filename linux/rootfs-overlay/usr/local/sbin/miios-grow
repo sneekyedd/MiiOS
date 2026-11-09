@@ -1,0 +1,10 @@
+#!/bin/sh
+# First boot from the USB stick: the image is only ~2.5 GB, so grow the
+# MiiOS partition to fill the whole stick (room for your files).
+set -e
+SRC=$(findmnt -no SOURCE /)
+DISK=/dev/$(lsblk -no PKNAME "$SRC")
+PART=$(cat /sys/class/block/$(basename "$SRC")/partition)
+growpart "$DISK" "$PART" || true
+resize2fs "$SRC" || true
+mkdir -p /var/lib/miios && touch /var/lib/miios/grown

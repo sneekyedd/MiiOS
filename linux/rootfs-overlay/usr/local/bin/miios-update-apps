@@ -1,0 +1,32 @@
+#!/bin/sh
+# Keep Mii Hub up to date, the same way its desktop app does: compare with
+# the newest release on GitHub and download it when there's a new one.
+# The new version goes into ~/.local/share/miios/apps/mii-hub (the copy that
+# came with MiiOS in /opt stays as a fallback). Your Miis, friends and coins
+# live in the browser's storage, so updating never loses them.
+#   miios-update-apps          check once
+#   miios-update-apps --loop   check now and every 3 hours
+REPO=sneekyedd/mii-hub
+DEST="$HOME/.local/share/miios/apps/mii-hub"
+check() {
+    tag=$(curl -fsS --max-time 20 "https://api.github.com/repos/$REPO/releases/latest" | jq -r '.tag_name // empty') || return 0
+    [ -n "$tag" ] || return 0
+    have=$(cat "$DEST/.miios-version" 2>/dev/null || cat /opt/miios/apps/mii-hub/.miios-version 2>/dev/null || true)
+    [ "$tag" = "$have" ] && return 0
+    tmp=$(mktemp -d)
+    if curl -fsSL --max-time 300 "https://codeload.github.com/$REPO/tar.gz/refs/tags/$tag" | tar -xz -C "$tmp" --strip-components=1; then
+        miios-prepare-hub "$tmp" && echo "$tag" > "$tmp/.miios-version" || { rm -rf "$tmp"; return 0; }
+        mkdir -p "$(dirname "$DEST")"
+        rm -rf "$DEST.old"; [ -d "$DEST" ] && mv "$DEST" "$DEST.old"
+        mv "$tmp" "$DEST" && rm -rf "$DEST.old"
+        echo "Mii Hub updated to $tag"
+    else
+        rm -rf "$tmp"
+    fi
+}
+if [ "$1" = "--loop" ]; then
+    sleep 20   # let Wi-Fi connect first
+    while true; do check; sleep 10800; done
+else
+    check
+fi

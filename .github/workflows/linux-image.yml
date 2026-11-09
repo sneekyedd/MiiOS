@@ -1,0 +1,60 @@
+# Builds the MiiOS (Linux edition) USB image on GitHub's computers and
+# publishes it as a Release, so it can be downloaded from the Releases page.
+# Runs when the MiiOS code changes, once a month (to pick up Debian security
+# fixes and the newest Mii Hub), or by hand from the Actions tab.
+name: Build MiiOS USB image
+
+on:
+  push:
+    branches: [main, claude/hobby-os-rust-thinkpad-5mk06r]
+    paths: ["linux/**", "kernel/**", "limine.conf", "Makefile", ".github/workflows/linux-image.yml"]
+  schedule:
+    - cron: "17 5 1 * *"
+  workflow_dispatch:
+
+permissions:
+  contents: write   # needed to publish the release
+
+concurrency:
+  group: miios-image
+  cancel-in-progress: true
+
+jobs:
+  image:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 90
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install image tools
+        run: |
+          sudo apt-get update -qq
+          sudo apt-get install -y -qq debootstrap mtools fdisk e2fsprogs dosfstools xz-utils rsync jq curl
+
+      - name: Install Rust
+        run: |
+          rustup toolchain install stable --profile minimal --target x86_64-unknown-none
+          rustup default stable
+
+      - name: Build the image
+        run: sudo -E env "PATH=$PATH" ./linux/build-image.sh
+
+      - name: Publish release
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: miios-linux-${{ github.run_number }}
+          name: MiiOS for ThinkPad (build ${{ github.run_number }})
+          make_latest: true
+          files: |
+            build/miios-linux.img.xz
+            build/miios-linux.img.xz.sha256
+          body: |
+            **MiiOS USB image** (Linux edition: Wi-Fi, web browser, your Miis, Mii Hub).
+
+            1. Download `miios-linux.img.xz`.
+            2. Write it to a USB stick (8 GB or bigger) with [balenaEtcher](https://etcher.balena.io/) (opens the .xz directly), or on Linux:
+               `xz -dc miios-linux.img.xz | sudo dd of=/dev/sdX bs=4M conv=fsync status=progress`
+            3. On the ThinkPad: turn off Secure Boot (F1 at power-on), then press F12 and pick the USB stick.
+            4. To install on the laptop: Settings → Install MiiOS on this laptop.
+
+            User: `mii`, password: `miios` (only needed in the Terminal for `sudo`).

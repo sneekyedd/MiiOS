@@ -1,0 +1,28 @@
+#!/bin/sh
+# Open an app on its own full-screen workspace, or switch back to it if it's
+# already running. Used by the MiiOS home screen tiles and the top bar.
+#   miios-launch home | web [URL] | mii-hub | mii-creator | terminal | close
+profile() { d="$HOME/.local/share/miios/firefox-$1"; mkdir -p "$d"; echo "$d"; }
+has_windows() {
+    swaymsg -t get_tree -r | jq -e --arg ws "$1" \
+      '[.. | objects | select(.type=="workspace" and .name==$ws) | .. | objects | select(.type=="con" and (.pid != null))] | length > 0' >/dev/null
+}
+open_on() { # workspace name, command...
+    ws="$1"; shift
+    swaymsg -q workspace "$ws"
+    has_windows "$ws" && return 0
+    cmd=""; for a in "$@"; do cmd="$cmd '$(printf %s "$a" | sed "s/'/'\\\\''/g")'"; done
+    swaymsg -q "workspace \"$ws\"; exec $cmd"
+}
+case "$1" in
+    home)     swaymsg -q workspace "1:Home" ;;
+    web)      if [ -n "$2" ] && has_windows "2:Web"; then swaymsg -q workspace "2:Web"; exec firefox-esr --profile "$(profile web)" --new-tab "$2"; fi
+              open_on "2:Web" firefox-esr --new-instance --profile "$(profile web)" ${2:+"$2"} ;;
+    mii-hub)  # served by the MiiOS home screen's built-in web server (it also hands over your Miis)
+              open_on "3:Mii Hub" firefox-esr --new-instance --kiosk --profile "$(profile mii-hub)" "http://127.0.0.1:8765/" ;;
+    mii-creator) exec miios-launch web "https://mii.nxw.pw/" ;;
+    terminal) open_on "4:Terminal" foot ;;
+    close)    # close the current app, but never the MiiOS home screen
+              cur=$(swaymsg -t get_workspaces -r | jq -r '.[] | select(.focused) | .name')
+              [ "$cur" = "1:Home" ] || { swaymsg -q kill; swaymsg -q workspace "1:Home"; } ;;
+esac

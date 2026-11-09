@@ -1,0 +1,19 @@
+#!/bin/sh
+# Get a downloaded copy of Mii Hub ready for MiiOS:
+#  * add the MiiOS bridge script (brings your MiiOS Miis in), and
+#  * if you have your own Miis, skip Mii Hub's random "starter" Miis.
+# Both are tiny, optional edits: if a future Mii Hub changes, it still runs.
+#   miios-prepare-hub FOLDER
+set -e
+D="$1"
+[ -f "$D/index.html" ] || { echo "not a Mii Hub folder: $D"; exit 1; }
+grep -q 'miios-hook.js' "$D/index.html" || \
+    sed -i 's#</body>#  <script src="/miios-hook.js"></script>\n</body>#' "$D/index.html"
+# A flag set before the app starts: "MiiOS has Miis of its own".
+grep -q 'MIIOS_HAS_MIIS' "$D/index.html" || \
+    sed -i '0,/<script>/s##<script>try{var x=new XMLHttpRequest();x.open("GET","/miis/list.json",false);x.send();window.MIIOS_HAS_MIIS=JSON.parse(x.responseText).length>0}catch(e){}</script>\n  <script>#' "$D/index.html"
+[ -f "$D/js/app.js" ] && sed -i 's#^\(\s*\)await addRandomMiis(5);#\1if (!window.MIIOS_HAS_MIIS) await addRandomMiis(5);#' "$D/js/app.js"
+[ -f "$D/build/icon.png" ] && cp "$D/build/icon.png" "$D/icon.png"
+# Things only the desktop/server versions use.
+rm -rf "$D/.git" "$D/.github" "$D/tests" "$D/electron" "$D/server" "$D/node_modules" "$D"/*.bat 2>/dev/null || true
+exit 0

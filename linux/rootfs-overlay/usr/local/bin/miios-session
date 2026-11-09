@@ -1,0 +1,7 @@
+#!/bin/sh
+# Start Sway (the tiny window manager) with the MiiOS configuration.
+mkdir -p "$HOME/.local/state"
+export XDG_CURRENT_DESKTOP=MiiOS MOZ_ENABLE_WAYLAND=1
+# Without a real GPU (e.g. in a virtual machine) draw with the CPU instead.
+[ -e /dev/dri/renderD128 ] || export WLR_RENDERER=pixman WLR_NO_HARDWARE_CURSORS=1
+exec sway -c /etc/miios/sway.conf > "$HOME/.local/state/miios-session.log" 2>&1

@@ -1,0 +1,3 @@
+#!/bin/sh
+# After a kernel update, put the new kernel on the boot partition.
+exec /usr/local/sbin/miios-update-boot

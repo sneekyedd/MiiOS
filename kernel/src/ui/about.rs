@@ -60,6 +60,15 @@ impl App for About {
 
         let card = Rect::new((s.w - 1200) / 2, 280, 1200, s.h - 400);
         c.fill_round_rect(card, 36, WHITE);
+        // Linux edition: the platform supplies its own facts.
+        if crate::host::HOSTED {
+            for (i, (k, v)) in crate::host::about_lines().iter().enumerate() {
+                let y = card.y + 40 + i as i32 * 52;
+                c.text(&font::LARGE, card.x + 48, y, k, INK_SOFT);
+                c.text(&font::LARGE, card.x + 300, y, v, INK);
+            }
+            return;
+        }
         let (total, used) = crate::mem::frame::stats();
         let (hs, hu) = crate::mem::heap::stats();
         let (tasks, switches) = crate::task::stats();

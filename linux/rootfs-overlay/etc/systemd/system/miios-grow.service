@@ -1,0 +1,11 @@
+[Unit]
+Description=Grow the MiiOS partition to fill its drive (first boot only)
+ConditionPathExists=!/var/lib/miios/grown
+After=local-fs.target
+
+[Service]
+Type=oneshot
+ExecStart=/usr/local/sbin/miios-grow
+
+[Install]
+WantedBy=multi-user.target

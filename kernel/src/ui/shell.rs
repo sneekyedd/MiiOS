@@ -83,6 +83,20 @@ impl Shell {
                 }
                 self.dispatch(UiEvent::Key { key, mods });
             }
+            Event::Pointer { x, y, wheel, left, right, middle } => {
+                if wheel != 0 { self.dispatch(UiEvent::Scroll { dy: wheel }); }
+                if x != self.px || y != self.py || !self.pointer_visible {
+                    self.screen.damage.add(cursor::rect(self.px, self.py));
+                    self.px = x.clamp(0, self.shared.w - 1);
+                    self.py = y.clamp(0, self.shared.h - 1);
+                    self.pointer_visible = true;
+                    self.screen.damage.add(cursor::rect(self.px, self.py));
+                    self.dispatch(UiEvent::PointerMove { x: self.px, y: self.py });
+                }
+                if left && !self.buttons.0 { self.dispatch(UiEvent::Click { x: self.px, y: self.py }); }
+                if !left && self.buttons.0 { self.dispatch(UiEvent::Release { x: self.px, y: self.py }); }
+                self.buttons = (left, right, middle);
+            }
             Event::Mouse { dx, dy, wheel, left, right, middle } => {
                 // TrackPoint-style scrolling: hold the middle button and push.
                 if middle && (dx != 0 || dy != 0) {
@@ -116,6 +130,7 @@ impl Shell {
         let action = unsafe { self.app(cur).event(&e, &mut *shared, &mut *damage) };
         match action {
             Action::None => {}
+            Action::Launch(name) => { crate::host::launch(name); }
             Action::Open(id, from) => {
                 let mut t = Tween::default();
                 t.start(14); // ~0.23 s

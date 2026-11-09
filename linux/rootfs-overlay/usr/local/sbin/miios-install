@@ -1,0 +1,64 @@
+#!/bin/bash
+# Install MiiOS onto a drive (ERASING it), by copying the system that is
+# running right now from the USB stick. Called by Settings -> Install MiiOS.
+#   miios-install /dev/nvme0n1
+# Each "say" line is shown on screen as progress.
+set -euo pipefail
+say() { echo "$*"; }
+fail() { echo "Problem: $*"; exit 1; }
+
+DEV="${1:-}"
+[ -b "$DEV" ] || fail "no such drive $DEV"
+[ -d /sys/block/"$(basename "$DEV")" ] || fail "$DEV is a partition, not a whole drive"
+ROOT_SRC=$(findmnt -no SOURCE /)
+ROOT_DISK=/dev/$(lsblk -no PKNAME "$ROOT_SRC")
+[ "$DEV" != "$ROOT_DISK" ] || fail "that's the drive MiiOS is running from"
+[ "$(lsblk -dno TRAN "$DEV")" != "usb" ] || fail "refusing to install onto a USB drive"
+
+say "Preparing the drive"
+for p in $(lsblk -lnpo NAME "$DEV" | tail -n +2); do umount -q "$p" 2>/dev/null || true; swapoff "$p" 2>/dev/null || true; done
+wipefs -aq "$DEV"
+sfdisk -q "$DEV" <<PARTS
+label: gpt
+size=512MiB, type=uefi, name="MIIOS-EFI"
+type=linux, name="MIIOS-ROOT"
+PARTS
+udevadm settle
+EFI=$(lsblk -lnpo NAME "$DEV" | sed -n 2p)
+ROOT=$(lsblk -lnpo NAME "$DEV" | sed -n 3p)
+mkfs.vfat -F 32 -n MIIOS-EFI "$EFI" >/dev/null
+mkfs.ext4 -q -F -L miios-root "$ROOT"
+
+T=/mnt/miios-target
+mkdir -p "$T"
+mount "$ROOT" "$T"
+mkdir -p "$T/boot/efi"
+mount "$EFI" "$T/boot/efi"
+trap 'sync; umount -q "$T/boot/efi" "$T" 2>/dev/null || true' EXIT
+
+say "Copying MiiOS (the slow part, a few minutes)"
+rsync -aHAX --one-file-system \
+    --exclude=/proc/ --exclude=/sys/ --exclude=/dev/ --exclude=/run/ --exclude=/tmp/ \
+    --exclude=/mnt/ --exclude=/media/ --exclude=/lost+found --exclude=/boot/efi/ \
+    --exclude=/etc/miios/live --exclude=/var/cache/apt/archives/ \
+    / "$T/"
+mkdir -p "$T/proc" "$T/sys" "$T/dev" "$T/run" "$T/tmp" "$T/mnt" "$T/media"
+chmod 1777 "$T/tmp"
+
+say "Copying the boot files"
+cp -a /boot/efi/. "$T/boot/efi/"
+
+say "Setting up the boot menu"
+ROOT_UUID=$(blkid -s UUID -o value "$ROOT")
+EFI_UUID=$(blkid -s UUID -o value "$EFI")
+cat > "$T/etc/fstab" <<FSTAB
+UUID=$ROOT_UUID  /          ext4  defaults,noatime  0 1
+UUID=$EFI_UUID   /boot/efi  vfat  umask=0077        0 1
+FSTAB
+sed -i "s/root=UUID=[^ ]*/root=UUID=$ROOT_UUID/" "$T/boot/efi/loader/entries/miios.conf"
+touch "$T/var/lib/miios/grown" 2>/dev/null || { mkdir -p "$T/var/lib/miios"; touch "$T/var/lib/miios/grown"; }
+# Tell the firmware about the new drive (it would also find it on its own).
+efibootmgr -q -c -d "$DEV" -p 1 -L "MiiOS" -l '\EFI\BOOT\BOOTX64.EFI' 2>/dev/null || true
+
+sync
+say "Done! MiiOS is installed."

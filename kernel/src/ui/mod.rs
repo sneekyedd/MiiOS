@@ -8,10 +8,13 @@ pub mod clockapp;
 pub mod files;
 pub mod home;
 pub mod icons;
+pub mod miis;
 pub mod pals;
+pub mod plaza;
 pub mod settings;
 pub mod shell;
 pub mod widgets;
+pub mod wifi;
 pub mod write;
 
 use crate::gfx::screen::Damage;
@@ -30,11 +33,11 @@ pub enum UiEvent {
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
-pub enum AppId { Home, Pals, Write, Files, Clock, Settings, About }
+pub enum AppId { Home, Pals, Write, Files, Clock, Settings, About, Wifi, Miis }
 
 /// What an app wants the shell to do after an event.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
-pub enum Action { None, Open(AppId, Rect), Back }
+pub enum Action { None, Open(AppId, Rect), Back, /** start an outside program (Linux edition) */ Launch(&'static str) }
 
 /// Data every app can see and change.
 pub struct Shared {

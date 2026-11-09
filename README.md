@@ -7,6 +7,21 @@ your own cartoon avatars ("Pals"), a text editor, and files that survive a reboo
 This README explains **every choice**, so you can learn OS development from it.
 Each milestone has its own section below.
 
+### Two editions
+
+| | **MiiOS Classic** (bare metal) | **MiiOS for ThinkPad** (Linux edition) |
+|---|---|---|
+| What runs underneath | Nothing: our own Rust kernel, drivers and filesystem | A small Debian Linux (kernel, drivers, Wi-Fi) |
+| Home screen | The MiiOS UI | **The same MiiOS UI code**, as a Linux program |
+| Wi-Fi, web browser, sound | ❌ | ✅ NetworkManager, Firefox, PipeWire |
+| Your 3D Miis walking on the home screen | ❌ (2D Pals instead) | ✅ |
+| Mii Hub | ❌ | ✅ preinstalled, updates itself |
+| Install onto the laptop | — | ✅ Settings → Install MiiOS |
+| Boot time / size | ~50 ms kernel, 420 KiB | a few seconds, ~2.4 GB |
+
+**Just want it on your ThinkPad?** Jump to [Get MiiOS for ThinkPad](#get-miios-for-thinkpad-download-flash-install).
+The rest of this README walks through building MiiOS Classic step by step, then the Linux edition.
+
 | Home | Pals (avatar maker) |
 |---|---|
 | ![Home screen](docs/screenshots/home.png) | ![Pals](docs/screenshots/pals.png) |
@@ -29,7 +44,8 @@ Each milestone has its own section below.
 | 8 | Text editor (Write) | ✅ |
 | 9 | Bootable USB image + T470 flashing guide | ✅ (QEMU-tested as a USB stick; **not yet tried on the real T470**) |
 | 10 | Stretch: NVMe + SATA drivers, MiiFS filesystem, USB keyboard/mouse | ✅ (QEMU-tested) |
-| – | Ethernet | ❌ not started (see "What's next") |
+| – | Linux edition: Wi-Fi, web browser, installer, your 3D Miis, Mii Hub | ✅ (QEMU-tested; Wi-Fi needs the real laptop) |
+| – | Ethernet | ✅ in the Linux edition (NetworkManager connects automatically when you plug in a cable); ❌ in Classic |
 
 **Numbers** (QEMU with a *software-emulated* CPU, so real hardware will be faster):
 
@@ -638,14 +654,172 @@ a built-in hub), and only boot-protocol keyboards/mice are supported (nearly all
 
 ---
 
+## MiiOS for ThinkPad (the Linux edition)
+
+You asked for Wi-Fi and a real web browser. A from-scratch kernel can't realistically do that:
+the Intel Wi-Fi driver alone is ~100,000 lines plus secret firmware, and a modern browser is tens
+of millions. So this edition keeps **everything you see** from MiiOS and puts a small Linux
+underneath to do the heavy lifting.
+
+### How it's put together
+
+```
+  ┌──────────────────────────── what you see ─────────────────────────────┐
+  │ miios-shell: the MiiOS home screen, Miis, Write, Files, Wi-Fi, ...    │  Rust, *same UI code* as Classic
+  │ Firefox (Web, Mii Hub)          foot (Terminal)                       │
+  ├──────────────────────────────────────────────────────────────────────┤
+  │ Sway: shows one app at a time, full screen; slim bar with Home/apps   │
+  ├──────────────────────────────────────────────────────────────────────┤
+  │ Debian 13 Linux: kernel + drivers, Intel 8265 Wi-Fi firmware,         │
+  │ NetworkManager, PipeWire sound, systemd                               │
+  ├──────────────────────────────────────────────────────────────────────┤
+  │ systemd-boot (boot menu, hidden: hold Space to see it)                │
+  └──────────────────────────────────────────────────────────────────────┘
+```
+
+1. **One UI, two platforms.** `linux/shell/src/main.rs` includes the very same files as the kernel
+   (`kernel/src/ui/*`, `kernel/src/gfx/*`) using `#[path = ...]`. Those files only ever ask the
+   "platform" for a few things: the time, files, memory stats, power off, input. The kernel answers
+   with its own drivers; `linux/shell/src/platform/` answers with Linux:
+   - `window.rs`: a window (via the small `minifb` library) plus keyboard/mouse;
+   - `fs.rs`: your files in `~/MiiOS`;
+   - `host.rs`: Wi-Fi, battery, launching apps and the installer.
+
+   The bare-metal kernel has a do-nothing version of `host` (`kernel/src/host.rs`), so both build
+   from the same code.
+2. **Sway** is a tiny "tiling window manager". Each app gets its own *workspace* (a full screen):
+   1 Home, 2 Web, 3 Mii Hub, 4 Terminal. Apps are started *through* Sway (`swaymsg exec`), so a
+   slow app's window still appears on its own workspace. Config: `linux/rootfs-overlay/etc/miios/sway.conf`.
+3. **Auto-login:** the laptop logs the user `mii` in on screen 1, which starts Sway, which starts
+   the home screen. (Password `miios`, only needed for `sudo` in the Terminal.)
+
+### Your Miis, in 3D
+
+- **Files.** Mii models (`.glb`, exported from Mii Creator) live in `~/MiiOS/miis/`. Lizzi and Joe
+  come preloaded (`linux/miis/`).
+- **A 3D renderer written for MiiOS** (`linux/shell/src/platform/mii3d.rs`, ~350 lines) draws them
+  with the CPU:
+  1. Read the glTF file: bones, meshes, textures.
+  2. Pose the skeleton.
+  3. *Skin* each vertex to its bones.
+  4. Draw triangles with a depth buffer, textures and soft lighting.
+  5. Draw at 2× size and shrink, for smooth edges.
+
+  Mii face textures are *mirrored half-pictures*, which the renderer handles.
+- **Walking.** The renderer rotates the hip, knee and shoulder bones along a sine wave; waving lifts
+  one arm. Each new frame takes ~8 ms. Frames are cached, so a walk cycle costs nothing after the
+  first lap.
+- **The plaza** (`kernel/src/ui/plaza.rs`). Your Miis live along the bottom of the home screen.
+  - Each one has a small state machine: stand and face you, wander somewhere, turn back, wave,
+    say hi to a Mii nearby.
+  - **Click a Mii** and it spins round, hops, waves and talks to you by name.
+  - When you come back to the home screen, they all wave.
+  - Standing Miis cost no CPU: decisions happen once a second.
+- **Which Mii is you?** By default, the Mii whose name matches who created it (your own Mii). Change
+  it in **Miis → This is me**.
+- **Adding Miis** (the **Miis** tile → **Find new Miis**):
+  - from a **USB stick**: put `.glb` files on it and plug it in (it's mounted read-only; nothing on
+    it changes), or
+  - from your **Downloads** folder: e.g. use **Make a Mii online** (opens Mii Creator in the
+    browser), export as a 3D model and save it.
+
+### Mii Hub, preinstalled and self-updating
+
+1. The image contains the **newest release** of [sneekyedd/mii-hub](https://github.com/sneekyedd/mii-hub) at build time.
+2. `miios-update-apps` (`linux/rootfs-overlay/usr/local/bin/`) checks GitHub for a newer release
+   when you log in and **every 3 hours**, the same releases the desktop app updates from. When there
+   is one, it downloads and swaps it in at `~/.local/share/miios/apps/mii-hub`. Your Miis, friends,
+   coins and homes live in the browser's storage, so they survive updates, and Mii Hub shows its own
+   patch notes the next time you open it.
+3. The home screen runs a tiny web server on `127.0.0.1:8765` (only reachable from the laptop
+   itself) that serves Mii Hub plus your MiiOS Miis.
+4. **Mii Hub's code is not modified.** MiiOS adds one `<script>` tag (`miios-hook.js`) that hands
+   your MiiOS Miis to Mii Hub through its normal **"Choose Mii .glb files…"** button. It also adds a
+   flag so Mii Hub skips its random starter Miis when you have your own. If a future Mii Hub changes,
+   these small additions just stop doing anything; nothing breaks.
+
+### Wi-Fi
+
+The **Wi-Fi** tile lists nearby networks (signal bars, a lock for secured ones). Pick one and type
+the password. Behind the scenes it's NetworkManager (`nmcli`), the same as on most Linux laptops;
+scanning and connecting run in the background so the screen never freezes. **Ethernet** needs
+nothing: plug in a cable and it connects.
+
+### Install onto the laptop
+
+**Settings → Install MiiOS on this laptop** (only shown when running from the USB stick):
+
+1. Pick the internal drive (USB drives and the stick you're running from are never offered).
+2. Type **ERASE** to confirm.
+3. Wait for the copy to finish (a few minutes).
+4. Unplug the stick and press Enter to restart.
+
+The installer (`linux/rootfs-overlay/usr/local/sbin/miios-install`):
+
+1. makes a GPT disk with a 512 MB EFI partition + a Linux partition;
+2. copies the running system with `rsync`, **including your Miis, notes and Wi-Fi passwords**;
+3. writes new partition IDs into `/etc/fstab` and the boot entry;
+4. registers MiiOS with the firmware (`efibootmgr`).
+
+### Get MiiOS for ThinkPad (download, flash, install)
+
+1. **Download:** open the MiiOS repository on GitHub → **Releases** → the newest **"MiiOS for
+   ThinkPad"** → download `miios-linux.img.xz` (~700 MB). GitHub builds it automatically
+   (`.github/workflows/linux-image.yml`) whenever the code changes, and once a month for security
+   updates.
+2. **Write it to a USB stick** (8 GB or bigger; everything on it is erased):
+   - easiest: [balenaEtcher](https://etcher.balena.io/) → *Flash from file* → pick the `.xz` → pick the stick → *Flash*;
+   - or on Linux:
+     ```bash
+     xz -dc miios-linux.img.xz | sudo dd of=/dev/sdX bs=4M conv=fsync status=progress
+     ```
+3. **Prepare the ThinkPad once:** power on, tap **F1**, **Security → Secure Boot → Disabled**,
+   **F10** to save. (This is still needed: the boot loader isn't signed by Microsoft.)
+4. **Boot it:** plug in the stick, power on, tap **F12**, pick the USB stick. The first boot takes a
+   little longer, because MiiOS grows itself to fill the stick.
+5. **Try everything from the stick.** It's a complete, *persistent* system: Wi-Fi passwords, Miis
+   and notes are kept on the stick.
+6. **Install:** Settings → Install MiiOS on this laptop → pick the drive → type ERASE → wait →
+   unplug the stick → Enter.
+
+**Keys:** ⊞ (Windows key) = back to the MiiOS home screen, ⊞+Q = close the app you're in,
+⊞+W = web, ⊞+Enter = terminal. Fn+F5/F6 = brightness, the volume keys work. The top bar also has
+clickable **Home / Web / Mii Hub** buttons.
+
+**Hidden boot menu:** hold **Space** while the laptop starts to choose between **MiiOS** and
+**MiiOS Classic (bare metal)**.
+
+### Build the image yourself
+
+```bash
+sudo apt install debootstrap mtools fdisk e2fsprogs dosfstools xz-utils rsync jq curl
+```
+```bash
+sudo -E env "PATH=$PATH" ./linux/build-image.sh
+```
+
+The result is `build/miios-linux.img` (+ `.img.xz`). It takes ~10 minutes and needs internet access
+to `deb.debian.org` and GitHub. The script is commented step by step: Debian → packages → MiiOS
+files → user → disk image. It never mounts or touches a real disk.
+
+### Tested so far (in QEMU, emulating a T470 with a USB stick + an NVMe SSD)
+
+- ✅ boots from the USB stick straight into MiiOS;
+- ✅ all tiles and the top bar;
+- ✅ Firefox opens on its own workspace;
+- ✅ Joe and Lizzi walk around, turn and wave;
+- ✅ Mii renders checked against your files (textures, mirroring, walk cycle).
+
+**Not testable in a virtual machine:** Wi-Fi (QEMU has no Wi-Fi card), real GPU speed, Fn keys,
+battery. These need the real laptop; please report what you see.
+
+---
+
 ## What's next (ideas)
 
-- **Ethernet.** The T470's port is an Intel I219-V. A driver plus a small network stack would
-  allow things like setting the clock from the internet or sending notes to another computer.
-  A *web browser* stays out of reach for a hobby OS (modern browsers are tens of millions of
-  lines).
-- **USB storage**, so notes can live on the boot stick instead of the internal SSD (USB "bulk-only
-  transport" + SCSI commands on top of the existing xHCI driver).
+- **Classic: Ethernet** (Intel I219-V driver + a small network stack) and **USB storage**.
+- **Linux edition:** a Plymouth boot splash with the MiiOS logo, Miis that visit each other's
+  homes, and a "Mii of the day" greeting.
 - **USB hubs**, **more keyboard layouts**, **multi-touch touchpad** (Synaptics/Elan protocol).
 - **Battery level** and **brightness control** (needs a real ACPI interpreter).
 
@@ -654,3 +828,6 @@ a built-in hub), and only boot-protocol keyboards/mice are supported (nearly all
 - MiiOS code: yours.
 - Spleen font: BSD 2-clause, © Frederic Cambus (`kernel/assets/fonts/LICENSE-spleen`).
 - Limine bootloader: BSD 2-clause, downloaded at build time (not stored in this repository).
+- Linux edition: Debian packages under their own licences; Mii Hub is your own project, downloaded at build time.
+- The Mii models in `linux/miis/` are your own Miis made with Mii Creator. The Mii look comes from
+  Nintendo, so keep this repository and its releases private; don't share them publicly.

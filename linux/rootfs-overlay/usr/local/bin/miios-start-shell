@@ -1,0 +1,10 @@
+#!/bin/sh
+# Start the MiiOS home screen at exactly the size of the space Sway gives
+# it, and start it again if it ever crashes.
+sleep 0.3
+while true; do
+    size=$(swaymsg -t get_workspaces -r | jq -r '[.[] | select(.focused)][0].rect | "\(.width)x\(.height)"')
+    case "$size" in *x*) ;; *) size=1920x1080 ;; esac
+    miios-shell "$size"
+    sleep 1
+done

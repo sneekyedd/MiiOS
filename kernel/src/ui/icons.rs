@@ -80,3 +80,43 @@ pub fn empty(c: &mut Canvas, cx: i32, cy: i32, s: i32) {
     c.fill_round_rect(r(cx, cy, s / 2, s / 10), s / 20, col);
     c.fill_round_rect(r(cx, cy, s / 10, s / 2), s / 20, col);
 }
+
+/// Globe (the web).
+pub fn web(c: &mut Canvas, cx: i32, cy: i32, s: i32) {
+    let rad = s * 4 / 10;
+    let blue = hex(0x35B6F2);
+    c.fill_circle(cx, cy + s / 40, rad, with_alpha(0x303858, 40));
+    c.fill_circle(cx, cy, rad, blue);
+    let w = fx(s / 22 + 1);
+    c.ring_fx(fx(cx), fx(cy), fx(rad * 8 / 10), w, WHITE);
+    c.line_fx(fx(cx - rad * 8 / 10), fx(cy), fx(cx + rad * 8 / 10), fx(cy), w, WHITE);
+    c.line_fx(fx(cx), fx(cy - rad * 8 / 10), fx(cx), fx(cy + rad * 8 / 10), w, WHITE);
+    // the curved "longitude" lines, as thin ellipse outlines
+    c.fill_ellipse_fx(fx(cx), fx(cy), fx(rad * 4 / 10), fx(rad * 8 / 10), WHITE);
+    c.fill_ellipse_fx(fx(cx), fx(cy), fx(rad * 4 / 10) - w, fx(rad * 8 / 10) - w, blue);
+    c.line_fx(fx(cx), fx(cy - rad * 8 / 10), fx(cx), fx(cy + rad * 8 / 10), w, WHITE);
+    c.line_fx(fx(cx - rad * 8 / 10), fx(cy), fx(cx + rad * 8 / 10), fx(cy), w, WHITE);
+}
+
+/// Wi-Fi: three arcs and a dot.
+pub fn wifi(c: &mut Canvas, cx: i32, cy: i32, s: i32) {
+    let col = hex(0x2BB7A3);
+    let base = fx(cy + s * 3 / 10);
+    for (i, r) in [s * 2 / 10, s * 35 / 100, s / 2].iter().enumerate() {
+        let _ = i;
+        c.arc_fx(fx(cx), base, fx(*r), fx(*r * 6 / 10), true, fx(s / 12 + 1), col);
+    }
+    c.fill_ellipse_fx(fx(cx), base - fx(s / 30), fx(s / 14 + 1), fx(s / 14 + 1), col);
+}
+
+/// Terminal: a dark window with a ">_" prompt.
+pub fn terminal(c: &mut Canvas, cx: i32, cy: i32, s: i32) {
+    let w = r(cx, cy, s * 8 / 10, s * 6 / 10);
+    c.fill_round_rect(w.offset(0, s / 30), s / 10, with_alpha(0x303858, 40));
+    c.fill_round_rect(w, s / 10, INK);
+    let lw = fx(s / 16 + 1);
+    let (x0, y0) = (fx(w.x + s / 7), fx(w.y + s / 6));
+    c.line_fx(x0, y0, x0 + fx(s / 8), y0 + fx(s / 9), lw, hex(0x7ED957));
+    c.line_fx(x0 + fx(s / 8), y0 + fx(s / 9), x0, y0 + fx(s * 2 / 9), lw, hex(0x7ED957));
+    c.line_fx(x0 + fx(s / 5), y0 + fx(s * 2 / 9), x0 + fx(s * 4 / 10), y0 + fx(s * 2 / 9), lw, WHITE);
+}

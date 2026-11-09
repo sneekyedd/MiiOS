@@ -1,0 +1,9 @@
+#!/bin/sh
+# Text on the right of the top bar: Wi-Fi, battery, time. Updated every 10 s.
+while true; do
+    wifi=$(nmcli -t -f ACTIVE,SSID dev wifi 2>/dev/null | sed -n 's/^yes://p' | head -n1)
+    bat=""
+    for b in /sys/class/power_supply/BAT*; do [ -r "$b/capacity" ] && bat="Battery $(cat "$b/capacity")%"; done
+    echo "${wifi:+Wi-Fi: $wifi    }${bat:+$bat    }$(date +%H:%M)  "
+    sleep 10
+done
